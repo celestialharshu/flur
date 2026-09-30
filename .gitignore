@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Environment variables
+.env
+.env.local
+.env.production
+.env.development
+.env.*.local
+
+# Vite
+.vite/
+dist/
+
+# Tauri/Rust build files
+**/src-tauri/target/
+**/target/
+
+# Logs
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+
+# OS files
+.DS_Store
+Thumbs.db

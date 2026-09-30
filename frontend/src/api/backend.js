@@ -1,0 +1,57 @@
+// const BASE_URL = 'http://localhost:4000/api';
+const BASE_URL = `${import.meta.env.VITE_API_URL}/api`;
+async function request(path, { method = 'GET', body, token } = {}) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const response = await fetch(`${BASE_URL}${path}`, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || `Request failed: ${response.status}`);
+  }
+  return data;
+}
+
+export const authApi = {
+  signup: (name, email, password) => request('/auth/signup', { method: 'POST', body: { name, email, password } }),
+  login: (email, password) => request('/auth/login', { method: 'POST', body: { email, password } }),
+  me: (token) => request('/auth/me', { token }),
+};
+
+export const recommendationsApi = {
+  get: (token, refresh = false) => request(`/recommendations${refresh ? '?refresh=true' : ''}`, { token }),
+};
+export const onboardingApi = {
+  getGenres: () => request('/onboarding/genres'),
+  submit: (token, genreIds) => request('/onboarding/complete', { method: 'POST', body: { genreIds }, token }),
+};
+export const favoritesApi = {
+  list: (token) => request('/favorites', { token }),
+  toggle: (token, songId) => request(`/favorites/${songId}/toggle`, { method: 'POST', token }),
+};
+
+export const playlistsApi = {
+  list: (token) => request('/playlists', { token }),
+  get: (token, playlistId) => request(`/playlists/${playlistId}`, { token }),
+  create: (token, title, songId) => request('/playlists', { method: 'POST', body: { title, songId }, token }),
+  addSong: (token, playlistId, songId) => request(`/playlists/${playlistId}/songs`, { method: 'POST', body: { songId }, token }),
+  removeSong: (token, playlistId, songId) => request(`/playlists/${playlistId}/songs/${songId}`, { method: 'DELETE', token }),
+  remove: (token, playlistId) => request(`/playlists/${playlistId}`, { method: 'DELETE', token }),
+};
+
+export const songsApi = {
+  search: (token, query) => request(`/songs/search?q=${encodeURIComponent(query)}`, { token }),
+};
+
+export const albumsApi = {
+  list: (token) => request('/albums', { token }),
+};
+
+export const artistsApi = {
+  list: (token) => request('/artists', { token }),
+};

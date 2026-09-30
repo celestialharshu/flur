@@ -1,0 +1,32 @@
+import pool from '../config/db.js';
+
+export async function upsertAlbum({ title, artistId, coverUrl }) {
+  // No unique constraint on (title, artist_id) yet, so check manually first
+  const existing = await pool.query(
+    `SELECT id FROM albums WHERE title = $1 AND artist_id = $2`,
+    [title, artistId]
+  );
+
+  if (existing.rows.length > 0) {
+    return existing.rows[0].id;
+  }
+
+  const result = await pool.query(
+    `INSERT INTO albums (title, artist_id, cover_url, source)
+     VALUES ($1, $2, $3, 'jiosaavn')
+     RETURNING id`,
+    [title, artistId, coverUrl]
+  );
+  return result.rows[0].id;
+}
+export async function getAllAlbums(limit = 50, offset = 0) {
+  const result = await pool.query(
+    `SELECT al.*, a.name AS artist_name
+     FROM albums al
+     LEFT JOIN artists a ON a.id = al.artist_id
+     ORDER BY al.created_at DESC
+     LIMIT $1 OFFSET $2`,
+    [limit, offset]
+  );
+  return result.rows;
+}
