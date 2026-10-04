@@ -1,3 +1,7 @@
+import { useState } from 'react';
+import { Mic2 } from 'lucide-react';
+import LyricsPanel from './LyricsPanel';
+import IconButton from '../common/IconButton';
 import CurrentTrack from './CurrentTrack';
 import PlaybackControls from './PlaybackControls';
 import ProgressBar from './ProgressBar';
@@ -14,6 +18,7 @@ function PlayerBar() {
     togglePlay, next, prev, seek, setVolume, toggleShuffle, toggleRepeat,
   } = usePlayer();
   const { isFavorite, toggleFavorite } = useFavorites();
+  const [showLyrics, setShowLyrics] = useState(false);
 
   // Early return comes AFTER all hooks, never before or between them.
   if (!currentTrack) {
@@ -49,7 +54,18 @@ function PlayerBar() {
         />
       </div>
 
-      <VolumeControl volume={volume} onVolumeChange={setVolume} />
+      <div className="player-bar__right">
+        <IconButton
+          icon={<Mic2 size={18} />}
+          onClick={() => setShowLyrics((v) => !v)}
+          active={showLyrics}
+          size="sm"
+          ariaLabel="Toggle lyrics"
+        />
+        <VolumeControl volume={volume} onVolumeChange={setVolume} />
+      </div>
+
+      {showLyrics && <LyricsPanel onClose={() => setShowLyrics(false)} />}
     </div>
   );
 }

@@ -9,6 +9,7 @@ import songRoutes from './routes/songRoutes.js';
 import albumRoutes from './routes/albumRoutes.js';
 import artistRoutes from './routes/artistRoutes.js';
 import historyRoutes from './routes/historyRoutes.js';
+import lyricsRoutes from './routes/lyricsRoutes.js';
 
 
 const app = express();
@@ -33,4 +34,5 @@ app.use('/api/onboarding', onboardingRoutes);
 app.use('/api/albums', albumRoutes);
 app.use('/api/artists', artistRoutes);
 app.use('/api/history', historyRoutes);
+app.use('/api/lyrics', lyricsRoutes);
 export default app;

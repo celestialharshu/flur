@@ -84,3 +84,16 @@ export const historyApi = {
   record: (token, songId) => request('/history', { method: 'POST', body: { songId }, token }),
   recent: (token, limit = 20) => request(`/history/recent?limit=${limit}`, { token }),
 };
+
+
+export const lyricsApi = {
+  get: (token, { title, artist, album, duration }) => {
+    const params = new URLSearchParams({
+      title: title || '',
+      artist: artist || '',
+      album: album || '',
+      duration: duration || '',
+    });
+    return request(`/lyrics?${params.toString()}`, { token, silent: true });
+  },
+};
