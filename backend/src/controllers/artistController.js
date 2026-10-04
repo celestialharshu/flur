@@ -1,25 +1,11 @@
 import {
-  getAllArtists, getArtistById, setArtistAvatar, getArtistSongs, getArtistAlbums,
+  getAllArtists, getArtistById, getArtistSongs, getArtistAlbums,
 } from '../models/artistModel.js';
-import { fetchArtistImage } from '../services/artistImageService.js';
+import { attachRealPhotos } from '../services/artistImageService.js';
 import { importSongsForArtist } from '../services/discoverService.js';
 
-const MAX_LOOKUPS_PER_REQUEST = 20;
 const MIN_SONGS_BEFORE_IMPORT = 12;
 const importedArtists = new Set(); // artists we've already topped up this server run
-
-// Look up real photos for artists that haven't been checked yet, save them,
-// and patch the rows in place. Later requests are instant (photo is in the DB).
-async function attachRealPhotos(artists) {
-  const pending = artists.filter((a) => a.raw_avatar_url === null).slice(0, MAX_LOOKUPS_PER_REQUEST);
-  await Promise.all(
-    pending.map(async (artist) => {
-      const url = await fetchArtistImage(artist.name);
-      await setArtistAvatar(artist.id, url);
-      if (url) artist.avatar_url = url;
-    })
-  );
-}
 
 function publicArtist(a) {
   return { id: a.id, name: a.name, avatar_url: a.avatar_url };

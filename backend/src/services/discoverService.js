@@ -59,7 +59,7 @@ async function buildQueryPlan(userId) {
   return [...artistQueries, ...plan];
 }
 
-async function persistResults(results, genreId, seenKeys, songIds) {
+export async function persistResults(results, genreId, seenKeys, songIds) {
   for (const song of results) {
     if (!song.streamUrl) continue;
     const key = `${song.title.trim().toLowerCase()}|${getPrimaryArtistName(song.artistName).toLowerCase()}`;

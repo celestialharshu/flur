@@ -82,7 +82,7 @@ function App() {
 const pages = {
   explorer: <Explorer onOpenAlbum={handleOpenAlbum} />,
   songs: <Songs />,
-  search: <SearchResults query={searchQuery} />,
+  search: <SearchResults query={searchQuery} onOpenAlbum={handleOpenAlbum} onOpenArtist={handleOpenArtist} />,
   albums: openAlbumId
     ? <AlbumDetail albumId={openAlbumId} onBack={() => setOpenAlbumId(null)} />
     : <AlbumsPage onOpenAlbum={handleOpenAlbum} />,

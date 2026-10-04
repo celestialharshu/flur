@@ -109,3 +109,9 @@ export const lyricsApi = {
     return request(`/lyrics?${params.toString()}`, { token, silent: true });
   },
 };
+
+
+export const searchApi = {
+  // silent: the search page shows its own loader (and typing must not flash the global one)
+  all: (token, query) => request(`/search?q=${encodeURIComponent(query)}`, { token, silent: true }),
+};

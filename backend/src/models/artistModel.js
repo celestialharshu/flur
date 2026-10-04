@@ -16,7 +16,7 @@ export async function upsertArtist(name, avatarUrl = null) {
 //   ''    -> we looked and none was found (don't retry)
 //   url   -> real artist photo
 // The API returns `avatar_url` = real photo, else cover art of one of their songs.
-const ARTIST_SELECT = `
+export const ARTIST_SELECT = `
   a.id,
   a.name,
   a.avatar_url AS raw_avatar_url,

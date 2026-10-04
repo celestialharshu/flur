@@ -20,7 +20,7 @@ function Header({ onSearch, onClearSearch }) {
     // Wait 400ms after the user stops typing before actually searching
     debounceRef.current = setTimeout(() => {
       onSearch?.(value.trim());
-    }, 600);
+    }, 350);
   };
 
   useEffect(() => {
@@ -28,6 +28,12 @@ function Header({ onSearch, onClearSearch }) {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, []);
+
+  // Enter = search right now, skip the debounce wait
+  const handleSubmit = () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (query.trim()) onSearch?.(query.trim());
+  };
 
   const handleClear = () => {
     setQuery('');
@@ -41,6 +47,7 @@ function Header({ onSearch, onClearSearch }) {
         value={query}
         onChange={handleChange}
         onClear={handleClear}
+        onSubmit={handleSubmit}
       />
     </div>
   );
