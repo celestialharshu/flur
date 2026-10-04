@@ -1,22 +1,29 @@
+// NOTE: Vercel's Express detection looks for an entrypoint file that imports
+// express, so this import must stay even though `app` is built in src/app.js.
+import express from 'express'; // eslint-disable-line no-unused-vars
+import dotenv from 'dotenv';
 import app from './src/app.js';
 import pool from './src/config/db.js';
-import dotenv from 'dotenv';
 
 dotenv.config();
 
 const PORT = process.env.PORT || 4000;
 
-// Quick sanity check on startup — confirms the DB is actually reachable
-// before the server starts accepting requests, so failures show up
-// immediately in the terminal instead of surfacing later as a mystery 500 error.
-pool.query('SELECT NOW()')
-  .then((result) => {
-    console.log('✅ Connected to PostgreSQL:', result.rows[0].now);
-    app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running on port ${PORT}`);
-});
-  })
-  .catch((err) => {
-    console.error('❌ Failed to connect to PostgreSQL:', err.message);
-    process.exit(1);
-  });
+// Locally (node server.js): check the DB, then start listening.
+// On Vercel: the platform runs `app` as a serverless function, so we must NOT
+// call listen() — we just export the app below.
+if (!process.env.VERCEL) {
+  pool.query('SELECT NOW()')
+    .then((result) => {
+      console.log('✅ Connected to PostgreSQL:', result.rows[0].now);
+      app.listen(PORT, '0.0.0.0', () => {
+        console.log(`Server running on port ${PORT}`);
+      });
+    })
+    .catch((err) => {
+      console.error('❌ Failed to connect to PostgreSQL:', err.message);
+      process.exit(1);
+    });
+}
+
+export default app;
