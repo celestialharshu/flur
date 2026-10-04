@@ -12,6 +12,7 @@ import PlaylistsPage from './pages/PlaylistsPage';
 import Favorites from './pages/Favorites';
 import { useAuth } from './context/AuthContext';
 import PlaylistDetail from './pages/PlaylistDetail';
+import Loader from './components/common/Loader';
 import './styles/tokens.css';
 import './styles/globals.css';
 
@@ -25,7 +26,7 @@ function App() {
 
 
   if (isLoading) {
-    return <div className="auth-page"><p className="text-secondary">Loading...</p></div>;
+  return <Loader />;
   }
 
   if (!user) {
