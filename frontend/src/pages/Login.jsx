@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { Music2 } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
 
+import { useAuth } from '../context/AuthContext';
+import AuthVisual from '../components/common/AuthVisual';
 function Login({ onSwitchToSignup }) {
   const { login } = useAuth();
   const [email, setEmail] = useState('');
@@ -69,23 +69,9 @@ function Login({ onSwitchToSignup }) {
         </div>
       </div>
 
-      <div className="auth-page__visual-side">
-        <div className="auth-visual">
-          <span className="auth-visual__ring" />
-          <span className="auth-visual__ring" />
-          <span className="auth-visual__ring" />
-          <div className="auth-visual__core">
-            <Music2 size={32} color="#ffffff" />
-          </div>
-          <div className="auth-visual__bars">
-            <span className="auth-visual__bar" />
-            <span className="auth-visual__bar" />
-            <span className="auth-visual__bar" />
-            <span className="auth-visual__bar" />
-            <span className="auth-visual__bar" />
-          </div>
-        </div>
-      </div>
+<div className="auth-page__visual-side">
+  <AuthVisual />
+</div>
     </div>
   );
 }
