@@ -4,23 +4,61 @@ import { historyApi } from '../api/backend';
 
 const PlayerContext = createContext(null);
 
+const STORAGE_KEY = 'flur_player_state';
+
+// Read what the player looked like before the page was reloaded.
+// Wrapped in try/catch: storage can be blocked or hold bad data.
+function loadSavedState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearSavedState() {
+  try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+}
+
 export function PlayerProvider({ children }) {
   const { token } = useAuth();
   const audioRef = useRef(new Audio());
-  const [queue, setQueue] = useState([]);
-  const [currentTrack, setCurrentTrack] = useState(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [volume, setVolumeState] = useState(70);
-  const [isShuffle, setIsShuffle] = useState(false);
-  const [isRepeat, setIsRepeat] = useState(false);
+
+  // Restore the last session (only if someone is logged in)
+  const savedRef = useRef(token ? loadSavedState() : null);
+  const saved = savedRef.current;
+  // position (seconds) to jump to once the restored track's audio has loaded
+  const resumeTimeRef = useRef(saved?.currentTime || 0);
+  // id of a restored track — reopening the app must not count as a new listen
+  const restoredIdRef = useRef(saved?.currentTrack?.id ?? null);
+
+  const [queue, setQueue] = useState(saved?.queue || []);
+  const [currentTrack, setCurrentTrack] = useState(saved?.currentTrack || null);
+  const [isPlaying, setIsPlaying] = useState(false); // always starts paused after a reload
+  const [currentTime, setCurrentTime] = useState(saved?.currentTime || 0);
+  const [volume, setVolumeState] = useState(saved?.volume ?? 70);
+  const [isShuffle, setIsShuffle] = useState(saved?.isShuffle || false);
+  const [isRepeat, setIsRepeat] = useState(saved?.isRepeat || false);
 
   useEffect(() => {
     const audio = audioRef.current;
     if (!currentTrack?.streamUrl) return;
     audio.src = currentTrack.streamUrl;
     audio.volume = volume / 100;
-    setCurrentTime(0);
+
+    const resumeAt = resumeTimeRef.current;
+    resumeTimeRef.current = 0;
+    if (resumeAt > 0) {
+      // restored after a reload: continue from where it stopped
+      const onLoaded = () => {
+        audio.currentTime = resumeAt;
+        setCurrentTime(resumeAt);
+      };
+      audio.addEventListener('loadedmetadata', onLoaded, { once: true });
+    } else {
+      setCurrentTime(0);
+    }
     if (isPlaying) audio.play().catch((err) => console.warn('Playback failed:', err));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTrack]);
@@ -29,6 +67,8 @@ export function PlayerProvider({ children }) {
   // (powers the "Recently played" section on the Explorer page).
   useEffect(() => {
     if (!token || !currentTrack?.id) return;
+    if (currentTrack.id === restoredIdRef.current) return; // restored, not newly played
+    restoredIdRef.current = null;
     historyApi.record(token, currentTrack.id).catch((err) =>
       console.warn('Failed to record listen history:', err.message)
     );
@@ -60,6 +100,31 @@ export function PlayerProvider({ children }) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRepeat, currentTrack]);
+
+  // Save the player so a page reload doesn't wipe the bar and the queue.
+  // Position is saved about every 2 seconds, everything else on change.
+  const savedSecond = Math.floor(currentTime / 2);
+  useEffect(() => {
+    if (!token) return;
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        queue, currentTrack, currentTime: audioRef.current.currentTime || currentTime,
+        volume, isShuffle, isRepeat,
+      }));
+    } catch { /* storage full or blocked — not critical */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queue, currentTrack, volume, isShuffle, isRepeat, savedSecond, token]);
+
+  // On logout: stop playback and forget the saved session
+  useEffect(() => {
+    if (token) return;
+    clearSavedState();
+    audioRef.current.pause();
+    setQueue([]);
+    setCurrentTrack(null);
+    setIsPlaying(false);
+    setCurrentTime(0);
+  }, [token]);
 
   // playTrack now optionally takes the full list it was played from
   // (e.g. the Songs page's 50 recommended tracks) — that list BECOMES
