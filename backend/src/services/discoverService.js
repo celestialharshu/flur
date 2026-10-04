@@ -59,6 +59,32 @@ async function buildQueryPlan(userId) {
   return [...artistQueries, ...plan];
 }
 
+async function persistResults(results, genreId, seenKeys, songIds) {
+  for (const song of results) {
+    if (!song.streamUrl) continue;
+    const key = `${song.title.trim().toLowerCase()}|${getPrimaryArtistName(song.artistName).toLowerCase()}`;
+    if (seenKeys.has(key)) continue;
+    seenKeys.add(key);
+
+    const artistId = await upsertArtist(getPrimaryArtistName(song.artistName));
+    const albumId = song.albumTitle
+      ? await upsertAlbum({ title: song.albumTitle, artistId, coverUrl: song.thumbnailUrl })
+      : null;
+    const id = await upsertSong({
+      externalId: song.externalId,
+      title: song.title,
+      artistId,
+      albumId,
+      genreId,
+      durationSeconds: song.durationSeconds,
+      thumbnailUrl: song.thumbnailUrl,
+      streamUrl: song.streamUrl,
+      playCount: song.playCount,
+    });
+    songIds.push(id);
+  }
+}
+
 export async function discoverSongs(userId, page = 0) {
   const plan = await buildQueryPlan(userId);
   const start = page * QUERIES_PER_PAGE;
@@ -70,32 +96,22 @@ export async function discoverSongs(userId, page = 0) {
 
   for (const { query, genreId } of slice) {
     const results = await searchJioSaavn(query); // returns [] on failure
-    for (const song of results) {
-      if (!song.streamUrl) continue;
-      const key = `${song.title.trim().toLowerCase()}|${getPrimaryArtistName(song.artistName).toLowerCase()}`;
-      if (seenKeys.has(key)) continue;
-      seenKeys.add(key);
-
-      const artistId = await upsertArtist(getPrimaryArtistName(song.artistName));
-      const albumId = song.albumTitle
-        ? await upsertAlbum({ title: song.albumTitle, artistId, coverUrl: song.thumbnailUrl })
-        : null;
-      const id = await upsertSong({
-        externalId: song.externalId,
-        title: song.title,
-        artistId,
-        albumId,
-        genreId,
-        durationSeconds: song.durationSeconds,
-        thumbnailUrl: song.thumbnailUrl,
-        streamUrl: song.streamUrl,
-        playCount: song.playCount,
-      });
-      songIds.push(id);
-    }
+    await persistResults(results, genreId, seenKeys, songIds);
   }
 
   const rows = await getSongsByIds(songIds);
   const ordered = songIds.map((id) => rows.find((r) => r.id === id)).filter(Boolean);
   return { songs: ordered, hasMore };
+}
+
+// Pull an artist's songs from JioSaavn into our DB (used by the artist page
+// when we only know a handful of their songs).
+export async function importSongsForArtist(artistName) {
+  const seenKeys = new Set();
+  const songIds = [];
+  for (const query of [artistName, `${artistName} songs`, `${artistName} hits`]) {
+    const results = await searchJioSaavn(query);
+    await persistResults(results, null, seenKeys, songIds);
+  }
+  return songIds.length;
 }

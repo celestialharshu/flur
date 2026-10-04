@@ -76,7 +76,8 @@ export const albumsApi = {
 };
 
 export const artistsApi = {
-  list: (token) => request('/artists', { token }),
+  list: (token, offset = 0, limit = 40) => request(`/artists?limit=${limit}&offset=${offset}`, { token, silent: offset > 0 }),
+  get: (token, artistId) => request(`/artists/${artistId}`, { token }),
 };
 
 

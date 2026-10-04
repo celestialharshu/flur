@@ -15,6 +15,7 @@ import Settings from './pages/Settings';
 import { useAuth } from './context/AuthContext';
 import PlaylistDetail from './pages/PlaylistDetail';
 import AlbumDetail from './pages/AlbumDetail';
+import ArtistDetail from './pages/ArtistDetail';
 import Loader from './components/common/Loader';
 import './styles/tokens.css';
 import './styles/globals.css';
@@ -27,6 +28,7 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [openPlaylistId, setOpenPlaylistId] = useState(null);
   const [openAlbumId, setOpenAlbumId] = useState(null);
+  const [openArtistId, setOpenArtistId] = useState(null);
   const isFetching = useSyncExternalStore(subscribePending, () => getPendingCount() > 0);
 
 
@@ -50,6 +52,7 @@ function App() {
   if (view !== 'search') setPreviousView(view);
   if (view === 'playlists') setOpenPlaylistId(null); // reset to grid view on fresh nav click
   if (view === 'albums') setOpenAlbumId(null);
+  if (view === 'artists') setOpenArtistId(null);
   setActiveView(view);
 };
 
@@ -57,6 +60,12 @@ function App() {
     setOpenAlbumId(albumId);
     setPreviousView('albums');
     setActiveView('albums');
+  };
+
+  const handleOpenArtist = (artistId) => {
+    setOpenArtistId(artistId);
+    setPreviousView('artists');
+    setActiveView('artists');
   };
 
   const handleSearch = (query) => {
@@ -77,7 +86,9 @@ const pages = {
   albums: openAlbumId
     ? <AlbumDetail albumId={openAlbumId} onBack={() => setOpenAlbumId(null)} />
     : <AlbumsPage onOpenAlbum={handleOpenAlbum} />,
-  artists: <ArtistsPage />,
+  artists: openArtistId
+    ? <ArtistDetail artistId={openArtistId} onBack={() => setOpenArtistId(null)} onOpenAlbum={handleOpenAlbum} />
+    : <ArtistsPage onOpenArtist={handleOpenArtist} />,
   playlists: openPlaylistId
     ? <PlaylistDetail playlistId={openPlaylistId} onBack={() => setOpenPlaylistId(null)} />
     : <PlaylistsPage onOpenPlaylist={setOpenPlaylistId} />,
