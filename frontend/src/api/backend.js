@@ -30,7 +30,18 @@ async function doRequest(path, { method, body, token }) {
     body: body ? JSON.stringify(body) : undefined,
   });
 
-  const data = await response.json();
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    // HTML/empty body instead of JSON — usually means the route doesn't exist
+    // on the server (e.g. backend not redeployed with the latest code).
+    throw new Error(
+      response.status === 404
+        ? `Server route not found (${path}). The backend may need to be redeployed.`
+        : `Unexpected server response (${response.status}).`
+    );
+  }
   if (!response.ok) {
     throw new Error(data.error || `Request failed: ${response.status}`);
   }
