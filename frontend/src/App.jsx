@@ -11,8 +11,10 @@ import AlbumsPage from './pages/AlbumsPage';
 import ArtistsPage from './pages/ArtistsPage';
 import PlaylistsPage from './pages/PlaylistsPage';
 import Favorites from './pages/Favorites';
+import Settings from './pages/Settings';
 import { useAuth } from './context/AuthContext';
 import PlaylistDetail from './pages/PlaylistDetail';
+import AlbumDetail from './pages/AlbumDetail';
 import Loader from './components/common/Loader';
 import './styles/tokens.css';
 import './styles/globals.css';
@@ -24,6 +26,7 @@ function App() {
   const [previousView, setPreviousView] = useState('explorer');
   const [searchQuery, setSearchQuery] = useState('');
   const [openPlaylistId, setOpenPlaylistId] = useState(null);
+  const [openAlbumId, setOpenAlbumId] = useState(null);
   const isFetching = useSyncExternalStore(subscribePending, () => getPendingCount() > 0);
 
 
@@ -46,8 +49,15 @@ function App() {
  const handleNavigate = (view) => {
   if (view !== 'search') setPreviousView(view);
   if (view === 'playlists') setOpenPlaylistId(null); // reset to grid view on fresh nav click
+  if (view === 'albums') setOpenAlbumId(null);
   setActiveView(view);
 };
+
+  const handleOpenAlbum = (albumId) => {
+    setOpenAlbumId(albumId);
+    setPreviousView('albums');
+    setActiveView('albums');
+  };
 
   const handleSearch = (query) => {
     setSearchQuery(query);
@@ -61,15 +71,18 @@ function App() {
   };
 
 const pages = {
-  explorer: <Explorer />,
+  explorer: <Explorer onOpenAlbum={handleOpenAlbum} />,
   songs: <Songs />,
   search: <SearchResults query={searchQuery} />,
-  albums: <AlbumsPage />,
+  albums: openAlbumId
+    ? <AlbumDetail albumId={openAlbumId} onBack={() => setOpenAlbumId(null)} />
+    : <AlbumsPage onOpenAlbum={handleOpenAlbum} />,
   artists: <ArtistsPage />,
   playlists: openPlaylistId
     ? <PlaylistDetail playlistId={openPlaylistId} onBack={() => setOpenPlaylistId(null)} />
     : <PlaylistsPage onOpenPlaylist={setOpenPlaylistId} />,
   favorite: <Favorites />,
+  settings: <Settings />,
 };
 
 
@@ -81,8 +94,10 @@ const pages = {
       onSearch={handleSearch}
       onClearSearch={handleClearSearch}
     >
-      {pages[activeView] || <div>Page not found</div>}
-      {isFetching && <Loader />}
+      {isFetching && <Loader inline />}
+      <div style={{ display: isFetching ? 'none' : 'block' }}>
+        {pages[activeView] || <div>Page not found</div>}
+      </div>
     </MainLayout>
   );
 }

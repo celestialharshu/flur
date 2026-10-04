@@ -30,3 +30,27 @@ export async function getAllAlbums(limit = 50, offset = 0) {
   );
   return result.rows;
 }
+
+export async function getAlbumById(id) {
+  const result = await pool.query(
+    `SELECT al.*, a.name AS artist_name
+     FROM albums al
+     LEFT JOIN artists a ON a.id = al.artist_id
+     WHERE al.id = $1`,
+    [id]
+  );
+  return result.rows[0] || null;
+}
+
+export async function getAlbumSongs(albumId) {
+  const result = await pool.query(
+    `SELECT s.*, a.name AS artist_name, al.title AS album_title
+     FROM songs s
+     LEFT JOIN artists a ON a.id = s.artist_id
+     LEFT JOIN albums al ON al.id = s.album_id
+     WHERE s.album_id = $1
+     ORDER BY s.play_count DESC, s.id ASC`,
+    [albumId]
+  );
+  return result.rows;
+}

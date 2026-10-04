@@ -67,11 +67,6 @@ function Sidebar({ activeView, onNavigate, user, nowPlaying }) {
           />
         ))}
       </SidebarSection>
-      
-<button className="nav-item" onClick={logout}>
-  <span className="nav-item__icon"><LogOut size={18} /></span>
-  <span className="nav-item__label">Log out</span>
-</button>
       <div className="sidebar__spacer" />
     </div>
   );

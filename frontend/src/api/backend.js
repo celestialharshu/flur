@@ -8,9 +8,10 @@ const notify = () => listeners.forEach((l) => l());
 export const subscribePending = (l) => { listeners.add(l); return () => listeners.delete(l); };
 export const getPendingCount = () => pendingCount;
 
-async function request(path, { method = 'GET', body, token } = {}) {
-  // Only track page-data GETs (not toggles/mutations or live search typing)
-  const tracked = method === 'GET' && !path.startsWith('/songs/search');
+async function request(path, { method = 'GET', body, token, silent = false } = {}) {
+  // Only track page-data GETs (not toggles/mutations, live search typing,
+  // or `silent` background requests like "Load more")
+  const tracked = method === 'GET' && !silent && !path.startsWith('/songs/search');
   if (tracked) { pendingCount += 1; notify(); }
   try {
     return await doRequest(path, { method, body, token });
@@ -65,12 +66,21 @@ export const playlistsApi = {
 
 export const songsApi = {
   search: (token, query) => request(`/songs/search?q=${encodeURIComponent(query)}`, { token }),
+  discover: (token, page = 0) => request(`/songs/discover?page=${page}`, { token, silent: true }),
+  browse: (token, offset = 0, limit = 30) => request(`/songs/browse?limit=${limit}&offset=${offset}`, { token, silent: true }),
 };
 
 export const albumsApi = {
-  list: (token) => request('/albums', { token }),
+  list: (token, offset = 0, limit = 30) => request(`/albums?limit=${limit}&offset=${offset}`, { token, silent: offset > 0 }),
+  get: (token, albumId) => request(`/albums/${albumId}`, { token }),
 };
 
 export const artistsApi = {
   list: (token) => request('/artists', { token }),
+};
+
+
+export const historyApi = {
+  record: (token, songId) => request('/history', { method: 'POST', body: { songId }, token }),
+  recent: (token, limit = 20) => request(`/history/recent?limit=${limit}`, { token }),
 };

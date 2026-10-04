@@ -1,8 +1,8 @@
 function Brand() {
   return (
     <div className="brand">
-      <span className="brand__logo">Flur</span>
-      <span className="brand__badge">.</span>
+      <span className="brand__logo"></span>
+      <span className="brand__badge"></span>
     </div>
   );
 }

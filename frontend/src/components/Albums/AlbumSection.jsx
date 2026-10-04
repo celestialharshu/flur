@@ -2,7 +2,7 @@ import { useRef } from 'react';
 import ScrollArrows from '../common/ScrollArrows';
 import AlbumCard from './AlbumCard';
 
-function AlbumSection({ title = 'Albums', albums = [] }) {
+function AlbumSection({ title = 'Albums', albums = [], onPlayAlbum, onOpenAlbum }) {
   const scrollRef = useRef(null);
 
   const scrollBy = (distance) => {
@@ -26,6 +26,8 @@ function AlbumSection({ title = 'Albums', albums = [] }) {
             coverUrl={album.coverUrl}
             title={album.title}
             artist={album.artist}
+            onOpen={onOpenAlbum ? () => onOpenAlbum(album.id) : undefined}
+            onPlay={onPlayAlbum ? onPlayAlbum(album) : undefined}
           />
         ))}
       </div>

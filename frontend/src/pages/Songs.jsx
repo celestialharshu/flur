@@ -5,22 +5,10 @@ import { usePlaylists } from '../context/PlaylistsContext';
 import { useFavorites } from '../context/FavoritesContext';
 import { usePlayer } from '../context/PlayerContext';
 import { useAuth } from '../context/AuthContext';
-import { recommendationsApi } from '../api/backend';
+import { recommendationsApi, songsApi } from '../api/backend';
+import { mapSong } from '../utils/mapSong';
 
-function mapSong(s) {
-  const mins = Math.floor(s.duration_seconds / 60);
-  const secs = s.duration_seconds % 60;
-  return {
-    id: s.id,
-    title: s.title,
-    artist: s.artist_name,
-    album: s.album_title,
-    duration: `${mins}:${secs.toString().padStart(2, '0')}`,
-    durationSeconds: s.duration_seconds,
-    thumbnail: s.thumbnail_url,
-    streamUrl: s.stream_url,
-  };
-}
+const PAGE_SIZE = 30;
 
 function Songs() {
   const { token } = useAuth();
@@ -28,6 +16,12 @@ function Songs() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [pendingSongId, setPendingSongId] = useState(null);
+  const [browseOffset, setBrowseOffset] = useState(0);
+  const [dbExhausted, setDbExhausted] = useState(false);
+  const [discoverPage, setDiscoverPage] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState(null);
 
   const { playlists, addSongToPlaylist, createPlaylist } = usePlaylists();
   const { isFavorite, toggleFavorite } = useFavorites();
@@ -41,6 +35,52 @@ function Songs() {
       .catch((err) => setError(err.message))
       .finally(() => setIsLoading(false));
   }, [token]);
+
+  // "Load more": first walks through songs already saved in our DB (your genres
+  // first), then keeps going by discovering NEW songs from JioSaavn.
+  // Songs already on screen are skipped; if a batch is all duplicates we
+  // quietly fetch the next one so a click always adds something.
+  const handleLoadMore = async () => {
+    setIsLoadingMore(true);
+    setLoadMoreError(null);
+    try {
+      let source = dbExhausted ? 'jio' : 'db';
+      let offset = browseOffset;
+      let page = discoverPage;
+      let more = true;
+      const shown = new Set(songs.map((s) => s.id));
+      const fresh = [];
+      let exhausted = dbExhausted;
+
+      for (let attempt = 0; attempt < 6 && more && fresh.length === 0; attempt++) {
+        let batch;
+        if (source === 'db') {
+          const res = await songsApi.browse(token, offset, PAGE_SIZE);
+          batch = res.songs;
+          offset += res.songs.length;
+          if (!res.hasMore) { exhausted = true; source = 'jio'; }
+        } else {
+          const res = await songsApi.discover(token, page);
+          batch = res.songs;
+          page += 1;
+          more = res.hasMore;
+        }
+        for (const s of batch.map(mapSong)) {
+          if (!shown.has(s.id)) { shown.add(s.id); fresh.push(s); }
+        }
+      }
+
+      setSongs((prev) => [...prev, ...fresh]);
+      setBrowseOffset(offset);
+      setDiscoverPage(page);
+      setDbExhausted(exhausted);
+      setHasMore(more);
+    } catch (err) {
+      setLoadMoreError(err.message);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
 
   const handleCreatePlaylist = (title) => {
     createPlaylist(title, pendingSongId);
@@ -86,6 +126,16 @@ function Songs() {
               />
             ))}
           </div>
+
+          {loadMoreError && <p className="text-secondary">Couldn't load more songs: {loadMoreError}</p>}
+
+          {hasMore && (
+            <div className="load-more">
+              <button className="load-more__btn" onClick={handleLoadMore} disabled={isLoadingMore}>
+                {isLoadingMore ? 'Loading...' : 'Load more songs'}
+              </button>
+            </div>
+          )}
         </>
       )}
 

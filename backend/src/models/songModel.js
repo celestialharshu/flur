@@ -39,3 +39,22 @@ export async function getSongsByIds(ids) {
   );
   return result.rows;
 }
+
+// Songs for "Load more": the user's preferred genres first (by their rank),
+// then everything else, each ordered by popularity. Stable order so
+// offset-based paging works.
+export async function browseSongsForUser(userId, limit = 30, offset = 0) {
+  const result = await pool.query(
+    `SELECT s.*, a.name AS artist_name, al.title AS album_title
+     FROM songs s
+     LEFT JOIN artists a ON a.id = s.artist_id
+     LEFT JOIN albums al ON al.id = s.album_id
+     LEFT JOIN user_genre_preferences ugp
+       ON ugp.genre_id = s.genre_id AND ugp.user_id = $1
+     WHERE s.stream_url IS NOT NULL
+     ORDER BY ugp.rank ASC NULLS LAST, s.play_count DESC, s.id ASC
+     LIMIT $2 OFFSET $3`,
+    [userId, limit, offset]
+  );
+  return result.rows;
+}

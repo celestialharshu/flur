@@ -8,6 +8,7 @@ import playlistRoutes from './routes/playlistRoutes.js';
 import songRoutes from './routes/songRoutes.js';
 import albumRoutes from './routes/albumRoutes.js';
 import artistRoutes from './routes/artistRoutes.js';
+import historyRoutes from './routes/historyRoutes.js';
 
 
 const app = express();
@@ -31,4 +32,5 @@ app.use('/api/playlists', playlistRoutes);
 app.use('/api/onboarding', onboardingRoutes);
 app.use('/api/albums', albumRoutes);
 app.use('/api/artists', artistRoutes);
+app.use('/api/history', historyRoutes);
 export default app;

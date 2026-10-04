@@ -1,6 +1,7 @@
 import { upsertArtist } from '../models/artistModel.js';
 import { upsertAlbum } from '../models/albumModel.js';
-import { upsertSong } from '../models/songModel.js';
+import { upsertSong, browseSongsForUser } from '../models/songModel.js';
+import { discoverSongs } from '../services/discoverService.js';
 import { searchJioSaavn, getPrimaryArtistName } from '../services/jiosaavnService.js';
 
 const searchCache = new Map();
@@ -66,5 +67,32 @@ export async function searchSongs(req, res) {
     activeRequest = null;
     console.error('Search error:', error);
     res.status(500).json({ error: 'Search failed.' });
+  }
+}
+
+export async function browseSongs(req, res) {
+  try {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 30, 100);
+    const offset = parseInt(req.query.offset, 10) || 0;
+    const rows = await browseSongsForUser(req.user.userId, limit + 1, offset);
+    const hasMore = rows.length > limit;
+    res.json({ songs: rows.slice(0, limit), hasMore });
+  } catch (error) {
+    console.error('Browse songs error:', error);
+    res.status(500).json({ error: 'Failed to load songs.' });
+  }
+}
+
+
+// Pulls NEW songs from JioSaavn (varied queries based on the user's genres
+// and favorite artists), saves them to the DB, and returns them.
+export async function discoverMoreSongs(req, res) {
+  try {
+    const page = Math.max(parseInt(req.query.page, 10) || 0, 0);
+    const { songs, hasMore } = await discoverSongs(req.user.userId, page);
+    res.json({ songs, hasMore });
+  } catch (error) {
+    console.error('Discover songs error:', error);
+    res.status(500).json({ error: 'Failed to discover songs.' });
   }
 }

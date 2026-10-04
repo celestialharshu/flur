@@ -1,8 +1,11 @@
 import { createContext, useContext, useState, useRef, useEffect, useCallback } from 'react';
+import { useAuth } from './AuthContext';
+import { historyApi } from '../api/backend';
 
 const PlayerContext = createContext(null);
 
 export function PlayerProvider({ children }) {
+  const { token } = useAuth();
   const audioRef = useRef(new Audio());
   const [queue, setQueue] = useState([]);
   const [currentTrack, setCurrentTrack] = useState(null);
@@ -21,6 +24,16 @@ export function PlayerProvider({ children }) {
     if (isPlaying) audio.play().catch((err) => console.warn('Playback failed:', err));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTrack]);
+
+  // Log every newly started track to the user's listen history
+  // (powers the "Recently played" section on the Explorer page).
+  useEffect(() => {
+    if (!token || !currentTrack?.id) return;
+    historyApi.record(token, currentTrack.id).catch((err) =>
+      console.warn('Failed to record listen history:', err.message)
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentTrack?.id]);
 
   useEffect(() => {
     const audio = audioRef.current;
