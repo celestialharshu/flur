@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useSyncExternalStore } from 'react';
+import { subscribePending, getPendingCount } from './api/backend';
 import MainLayout from './layouts/MainLayout';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
@@ -23,6 +24,7 @@ function App() {
   const [previousView, setPreviousView] = useState('explorer');
   const [searchQuery, setSearchQuery] = useState('');
   const [openPlaylistId, setOpenPlaylistId] = useState(null);
+  const isFetching = useSyncExternalStore(subscribePending, () => getPendingCount() > 0);
 
 
   if (isLoading) {
@@ -80,6 +82,7 @@ const pages = {
       onClearSearch={handleClearSearch}
     >
       {pages[activeView] || <div>Page not found</div>}
+      {isFetching && <Loader />}
     </MainLayout>
   );
 }

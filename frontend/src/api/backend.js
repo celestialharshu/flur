@@ -1,6 +1,25 @@
 // const BASE_URL = 'http://localhost:4000/api';
 const BASE_URL = `${import.meta.env.VITE_API_URL}/api`;
+
+// --- global pending-request tracker (drives the page loader) ---
+let pendingCount = 0;
+const listeners = new Set();
+const notify = () => listeners.forEach((l) => l());
+export const subscribePending = (l) => { listeners.add(l); return () => listeners.delete(l); };
+export const getPendingCount = () => pendingCount;
+
 async function request(path, { method = 'GET', body, token } = {}) {
+  // Only track page-data GETs (not toggles/mutations or live search typing)
+  const tracked = method === 'GET' && !path.startsWith('/songs/search');
+  if (tracked) { pendingCount += 1; notify(); }
+  try {
+    return await doRequest(path, { method, body, token });
+  } finally {
+    if (tracked) { pendingCount -= 1; notify(); }
+  }
+}
+
+async function doRequest(path, { method, body, token }) {
   const headers = { 'Content-Type': 'application/json' };
   if (token) headers.Authorization = `Bearer ${token}`;
 
