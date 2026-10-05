@@ -12,6 +12,7 @@ import ArtistsPage from './pages/ArtistsPage';
 import PlaylistsPage from './pages/PlaylistsPage';
 import Favorites from './pages/Favorites';
 import Settings from './pages/Settings';
+import Equalizer from './pages/Equalizer';
 import { useAuth } from './context/AuthContext';
 import PlaylistDetail from './pages/PlaylistDetail';
 import AlbumDetail from './pages/AlbumDetail';
@@ -94,6 +95,7 @@ const pages = {
     : <PlaylistsPage onOpenPlaylist={setOpenPlaylistId} />,
   favorite: <Favorites />,
   settings: <Settings />,
+  equalizer: <Equalizer />,
 };
 
 

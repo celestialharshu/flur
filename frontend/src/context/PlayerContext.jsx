@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useRef, useEffect, useCallback } from 'react';
 import { useAuth } from './AuthContext';
 import { historyApi } from '../api/backend';
+import { audioEngine } from '../audio/audioEngine';
 
 const PlayerContext = createContext(null);
 
@@ -41,27 +42,74 @@ export function PlayerProvider({ children }) {
   const [isShuffle, setIsShuffle] = useState(saved?.isShuffle || false);
   const [isRepeat, setIsRepeat] = useState(saved?.isRepeat || false);
 
+  // keeps the latest play state available to async code below
+  const isPlayingRef = useRef(false);
+  isPlayingRef.current = isPlaying;
+
+  // hand the <audio> element to the effects engine (EQ, speed, pitch, ...)
+  useEffect(() => {
+    audioEngine.attachElement(audioRef.current);
+  }, []);
+
   useEffect(() => {
     const audio = audioRef.current;
     if (!currentTrack?.streamUrl) return;
-    audio.src = currentTrack.streamUrl;
-    audio.volume = volume / 100;
+    let cancelled = false;
 
-    const resumeAt = resumeTimeRef.current;
-    resumeTimeRef.current = 0;
-    if (resumeAt > 0) {
-      // restored after a reload: continue from where it stopped
-      const onLoaded = () => {
-        audio.currentTime = resumeAt;
-        setCurrentTime(resumeAt);
-      };
-      audio.addEventListener('loadedmetadata', onLoaded, { once: true });
-    } else {
-      setCurrentTime(0);
-    }
-    if (isPlaying) audio.play().catch((err) => console.warn('Playback failed:', err));
+    const load = async () => {
+      // Can this stream go through Web Audio (needs CORS)? Cached per server,
+      // so only the first song pays for the check.
+      const corsOk = await audioEngine.supportsCors(currentTrack.streamUrl);
+      if (cancelled) return;
+
+      // crossOrigin has to be set BEFORE src, or effects would output silence
+      audio.crossOrigin = corsOk ? 'anonymous' : null;
+      audio.src = currentTrack.streamUrl;
+      audio.volume = volume / 100;
+
+      const resumeAt = resumeTimeRef.current;
+      resumeTimeRef.current = 0;
+      if (resumeAt > 0) {
+        // restored after a reload: continue from where it stopped
+        const onLoaded = () => {
+          audio.currentTime = resumeAt;
+          setCurrentTime(resumeAt);
+        };
+        audio.addEventListener('loadedmetadata', onLoaded, { once: true });
+      } else {
+        setCurrentTime(0);
+      }
+
+      audioEngine.onTrackLoaded();
+      if (isPlayingRef.current) {
+        audioEngine.resume();
+        audio.play().catch((err) => console.warn('Playback failed:', err));
+      }
+    };
+    load();
+
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTrack]);
+
+  // Safety net: if a CORS-enabled load fails (server blocks it after all),
+  // reload the same song the normal way and switch effects off.
+  useEffect(() => {
+    const audio = audioRef.current;
+    const handleError = () => {
+      if (audio.crossOrigin === 'anonymous' && !audioEngine.graphActive && audio.src) {
+        const url = audio.src;
+        const at = audio.currentTime;
+        audioEngine.markCorsFailed(url);
+        audio.crossOrigin = null;
+        audio.src = url;
+        audio.addEventListener('loadedmetadata', () => { audio.currentTime = at; }, { once: true });
+        if (isPlayingRef.current) audio.play().catch(() => {});
+      }
+    };
+    audio.addEventListener('error', handleError);
+    return () => audio.removeEventListener('error', handleError);
+  }, []);
 
   // Log every newly started track to the user's listen history
   // (powers the "Recently played" section on the Explorer page).
@@ -77,8 +125,10 @@ export function PlayerProvider({ children }) {
 
   useEffect(() => {
     const audio = audioRef.current;
-    if (isPlaying) audio.play().catch((err) => console.warn('Playback failed:', err));
-    else audio.pause();
+    if (isPlaying) {
+      audioEngine.resume(); // browsers keep Web Audio suspended until a user action
+      audio.play().catch((err) => console.warn('Playback failed:', err));
+    } else audio.pause();
   }, [isPlaying]);
 
   useEffect(() => {
