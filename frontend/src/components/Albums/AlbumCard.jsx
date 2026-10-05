@@ -1,19 +1,22 @@
+import { memo } from 'react';
 import { Play } from 'lucide-react';
+import { secureUrl } from '../../utils/media';
 
-// onOpen: click anywhere on the card to open the album page.
+// onOpen(id): click anywhere on the card to open the album page.
 // onPlay (optional): shows a hover play button that plays without opening.
-function AlbumCard({ coverUrl, title, artist, onOpen, onPlay }) {
+function AlbumCard({ id, coverUrl, title, artist, onOpen, onPlay }) {
+  const open = onOpen ? () => onOpen(id) : undefined;
   return (
     <div
       className={`album-card ${onOpen ? 'album-card--clickable' : ''}`}
-      onClick={onOpen}
+      onClick={open}
       role={onOpen ? 'button' : undefined}
       tabIndex={onOpen ? 0 : undefined}
-      onKeyDown={(e) => { if (onOpen && e.key === 'Enter') onOpen(); }}
+      onKeyDown={(e) => { if (open && e.key === 'Enter') open(); }}
       title={title}
     >
       <div className="album-card__cover-wrap">
-        <img src={coverUrl} alt={title} className="album-card__cover" />
+        <img src={secureUrl(coverUrl)} alt={title} className="album-card__cover" loading="lazy" decoding="async" />
         {onPlay && (
           <button
             className="album-card__play"
@@ -30,4 +33,4 @@ function AlbumCard({ coverUrl, title, artist, onOpen, onPlay }) {
   );
 }
 
-export default AlbumCard;
+export default memo(AlbumCard);

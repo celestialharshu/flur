@@ -28,6 +28,7 @@ function ArtistSection({ title = 'Artists', artists = [], onBrowse }) {
         {artists.map((artist) => (
           <ArtistCard
             key={artist.id}
+            id={artist.id}
             avatarUrl={artist.avatarUrl}
             name={artist.name}
           />

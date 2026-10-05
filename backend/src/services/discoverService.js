@@ -1,11 +1,12 @@
 import pool from '../config/db.js';
 import { searchJioSaavn, getPrimaryArtistName } from './jiosaavnService.js';
-import { upsertArtist } from '../models/artistModel.js';
-import { upsertAlbum } from '../models/albumModel.js';
-import { upsertSong, getSongsByIds } from '../models/songModel.js';
+import { persistCandidates } from './catalogService.js';
+import { getSongsByIds } from '../models/songModel.js';
 import { getUserGenrePreferences } from '../models/genreModel.js';
+import { mapLimit } from '../utils/async.js';
 
 const QUERIES_PER_PAGE = 3;
+const SCRAPER_CONCURRENCY = 3; // the scraper is fragile: never hit it with many calls at once
 
 // Added to each genre search term to reach songs the base feed never saw.
 // (The unmodified terms are already used by the recommendation feed.)
@@ -36,7 +37,10 @@ async function getUserTopArtists(userId, limit = 8) {
 // Deterministic, ordered list of search queries for this user. "page" N simply
 // takes the next slice, so every Load more click uses fresh queries.
 async function buildQueryPlan(userId) {
-  const prefs = await getUserGenrePreferences(userId);
+  const [prefs, artists] = await Promise.all([
+    getUserGenrePreferences(userId),
+    getUserTopArtists(userId),
+  ]);
   const plan = [];
 
   // genre x modifier, interleaved across genres so variety stays high
@@ -49,7 +53,6 @@ async function buildQueryPlan(userId) {
   }
 
   // songs by artists the user actually listens to / favorites
-  const artists = await getUserTopArtists(userId);
   const artistQueries = artists.flatMap((name) => [
     { query: `${name} songs`, genreId: null },
     { query: `${name} hits`, genreId: null },
@@ -59,29 +62,19 @@ async function buildQueryPlan(userId) {
   return [...artistQueries, ...plan];
 }
 
+// Saves search results (skipping songs without a stream link or already seen) and
+// appends their ids to songIds, in order.
 export async function persistResults(results, genreId, seenKeys, songIds) {
+  const fresh = [];
   for (const song of results) {
     if (!song.streamUrl) continue;
     const key = `${song.title.trim().toLowerCase()}|${getPrimaryArtistName(song.artistName).toLowerCase()}`;
     if (seenKeys.has(key)) continue;
     seenKeys.add(key);
-
-    const artistId = await upsertArtist(getPrimaryArtistName(song.artistName));
-    const albumId = song.albumTitle
-      ? await upsertAlbum({ title: song.albumTitle, artistId, coverUrl: song.thumbnailUrl })
-      : null;
-    const id = await upsertSong({
-      externalId: song.externalId,
-      title: song.title,
-      artistId,
-      albumId,
-      genreId,
-      durationSeconds: song.durationSeconds,
-      thumbnailUrl: song.thumbnailUrl,
-      streamUrl: song.streamUrl,
-      playCount: song.playCount,
-    });
-    songIds.push(id);
+    fresh.push(song);
+  }
+  for (const { songId } of await persistCandidates(fresh, genreId)) {
+    if (songId !== null) songIds.push(songId);
   }
 }
 
@@ -94,14 +87,13 @@ export async function discoverSongs(userId, page = 0) {
   const seenKeys = new Set();
   const songIds = [];
 
-  for (const { query, genreId } of slice) {
-    const results = await searchJioSaavn(query); // returns [] on failure
-    await persistResults(results, genreId, seenKeys, songIds);
+  // search in parallel, save in plan order (so the first query's songs come first)
+  const found = await mapLimit(slice, SCRAPER_CONCURRENCY, ({ query }) => searchJioSaavn(query)); // [] on failure
+  for (let i = 0; i < slice.length; i++) {
+    await persistResults(found[i], slice[i].genreId, seenKeys, songIds);
   }
 
-  const rows = await getSongsByIds(songIds);
-  const ordered = songIds.map((id) => rows.find((r) => r.id === id)).filter(Boolean);
-  return { songs: ordered, hasMore };
+  return { songs: await getSongsByIds(songIds), hasMore };
 }
 
 // Pull an artist's songs from JioSaavn into our DB (used by the artist page
@@ -109,9 +101,8 @@ export async function discoverSongs(userId, page = 0) {
 export async function importSongsForArtist(artistName) {
   const seenKeys = new Set();
   const songIds = [];
-  for (const query of [artistName, `${artistName} songs`, `${artistName} hits`]) {
-    const results = await searchJioSaavn(query);
-    await persistResults(results, null, seenKeys, songIds);
-  }
+  const queries = [artistName, `${artistName} songs`, `${artistName} hits`];
+  const found = await mapLimit(queries, SCRAPER_CONCURRENCY, (q) => searchJioSaavn(q));
+  for (const results of found) await persistResults(results, null, seenKeys, songIds);
   return songIds.length;
 }

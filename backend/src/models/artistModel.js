@@ -1,4 +1,8 @@
 import pool from '../config/db.js';
+import { TtlCache } from '../utils/async.js';
+
+// Artists are never deleted, so name -> id can be remembered by this server.
+const knownIds = new TtlCache(5000);
 
 export async function upsertArtist(name, avatarUrl = null) {
   const result = await pool.query(
@@ -8,7 +12,33 @@ export async function upsertArtist(name, avatarUrl = null) {
      RETURNING id`,
     [name, avatarUrl]
   );
+  knownIds.set(name, result.rows[0].id);
   return result.rows[0].id;
+}
+
+// Many artists in one query. Returns Map(name -> id). Names seen before cost nothing.
+export async function upsertArtists(names) {
+  const ids = new Map();
+  const missing = [];
+  for (const name of new Set(names)) {
+    const id = knownIds.get(name);
+    if (id !== undefined) ids.set(name, id);
+    else missing.push(name);
+  }
+  if (missing.length > 0) {
+    const result = await pool.query(
+      `INSERT INTO artists (name)
+       SELECT unnest($1::text[])
+       ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
+       RETURNING id, name`,
+      [missing]
+    );
+    for (const row of result.rows) {
+      ids.set(row.name, row.id);
+      knownIds.set(row.name, row.id);
+    }
+  }
+  return ids;
 }
 
 // avatar_url semantics:
@@ -49,6 +79,17 @@ export async function getArtistById(id) {
 export async function setArtistAvatar(id, url) {
   // '' marks "looked up, nothing found"
   await pool.query(`UPDATE artists SET avatar_url = $1 WHERE id = $2`, [url || '', id]);
+}
+
+// Same as setArtistAvatar for many artists in one query: entries = [{ id, url }]
+export async function setArtistAvatars(entries) {
+  if (entries.length === 0) return;
+  await pool.query(
+    `UPDATE artists a SET avatar_url = v.url
+     FROM unnest($1::int[], $2::text[]) AS v(id, url)
+     WHERE a.id = v.id`,
+    [entries.map((e) => e.id), entries.map((e) => e.url || '')]
+  );
 }
 
 export async function getArtistSongs(artistId, limit = 100) {

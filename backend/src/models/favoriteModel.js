@@ -45,3 +45,21 @@ export async function isFavorite(userId, songId) {
   );
   return result.rows.length > 0;
 }
+
+// Flips the heart in ONE query: removes the favorite if it exists, otherwise adds it.
+// Returns the new state (true = now a favorite).
+export async function toggleFavoriteRow(userId, songId) {
+  const result = await pool.query(
+    `WITH removed AS (
+       DELETE FROM favorites WHERE user_id = $1 AND song_id = $2 RETURNING 1
+     ), added AS (
+       INSERT INTO favorites (user_id, song_id)
+       SELECT $1::int, $2::int WHERE NOT EXISTS (SELECT 1 FROM removed)
+       ON CONFLICT (user_id, song_id) DO NOTHING
+       RETURNING 1
+     )
+     SELECT EXISTS (SELECT 1 FROM added) AS is_favorite`,
+    [userId, songId]
+  );
+  return result.rows[0].is_favorite;
+}

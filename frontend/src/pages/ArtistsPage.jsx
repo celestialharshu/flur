@@ -58,9 +58,10 @@ function ArtistsPage({ onOpenArtist }) {
             {artists.map((artist) => (
               <ArtistCard
                 key={artist.id}
+                id={artist.id}
                 avatarUrl={artist.avatar_url}
                 name={artist.name}
-                onOpen={() => onOpenArtist?.(artist.id)}
+                onOpen={onOpenArtist}
               />
             ))}
           </div>

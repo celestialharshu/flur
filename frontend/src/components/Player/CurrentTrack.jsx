@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Heart } from 'lucide-react';
 import IconButton from '../common/IconButton';
 
@@ -20,4 +21,4 @@ function CurrentTrack({ thumbnail, title, artist, isFavorite = false, onToggleFa
   );
 }
 
-export default CurrentTrack;
+export default memo(CurrentTrack);

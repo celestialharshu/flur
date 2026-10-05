@@ -1,12 +1,19 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { favoritesApi } from '../api/backend';
 import { useAuth } from './AuthContext';
 
 const FavoritesContext = createContext(null);
 
+const flip = (set, id) => {
+  const next = new Set(set);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  return next;
+};
+
 export function FavoritesProvider({ children }) {
   const { token } = useAuth();
-  const [favoriteIds, setFavoriteIds] = useState(new Set());
+  const [favoriteIds, setFavoriteIds] = useState(() => new Set());
 
   useEffect(() => {
     if (!token) {
@@ -20,32 +27,23 @@ export function FavoritesProvider({ children }) {
 
   const toggleFavorite = useCallback(async (songId) => {
     // Optimistic update — flip locally first, then sync with backend
-    setFavoriteIds((prev) => {
-      const next = new Set(prev);
-      next.has(songId) ? next.delete(songId) : next.add(songId);
-      return next;
-    });
-
+    setFavoriteIds((prev) => flip(prev, songId));
     try {
       await favoritesApi.toggle(token, songId);
     } catch (err) {
       console.error('Failed to toggle favorite:', err.message);
-      // Revert on failure
-      setFavoriteIds((prev) => {
-        const next = new Set(prev);
-        next.has(songId) ? next.delete(songId) : next.add(songId);
-        return next;
-      });
+      setFavoriteIds((prev) => flip(prev, songId)); // revert on failure
     }
   }, [token]);
 
   const isFavorite = useCallback((songId) => favoriteIds.has(songId), [favoriteIds]);
 
-  return (
-    <FavoritesContext.Provider value={{ favoriteIds, toggleFavorite, isFavorite }}>
-      {children}
-    </FavoritesContext.Provider>
+  const value = useMemo(
+    () => ({ favoriteIds, toggleFavorite, isFavorite }),
+    [favoriteIds, toggleFavorite, isFavorite]
   );
+
+  return <FavoritesContext.Provider value={value}>{children}</FavoritesContext.Provider>;
 }
 
 export function useFavorites() {

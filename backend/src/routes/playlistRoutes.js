@@ -1,9 +1,8 @@
 import { Router } from 'express';
 import {
-  listPlaylists, createUserPlaylist, removeUserPlaylist, addSong, removeSong,
+  listPlaylists, createUserPlaylist, removeUserPlaylist, addSong, removeSong, getPlaylistDetail,
 } from '../controllers/playlistController.js';
 import { requireAuth } from '../middleware/authMiddleware.js';
-import { getPlaylistDetail } from '../controllers/playlistController.js';
 
 const router = Router();
 

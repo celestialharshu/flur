@@ -1,28 +1,30 @@
+import { memo } from 'react';
 import { Heart, MoreVertical, ListPlus, Plus, Check } from 'lucide-react';
 import IconButton from '../components/common/IconButton';
 import DropdownMenu from '../components/common/DropdownMenu';
 
+const NONE = [];
+
+// One row of a song list. Handlers are shared by all rows (they receive the song / id),
+// so a row only re-renders when its own song, favorite or active state changes.
 function SongRow({
-  id,
+  song,
   index,
-  thumbnail,
-  title,
-  artist,
-  album,
-  duration,
   isFavorite = false,
   isActive = false,
   onPlay,
   onToggleFavorite,
-  playlists = [],
+  playlists = NONE,
   onAddToPlaylist,
   onCreatePlaylist,
 }) {
+  const { id, thumbnail, title, artist, album, duration } = song;
+
   return (
-    <div className={`song-row ${isActive ? 'song-row--active' : ''}`} onClick={onPlay}>
+    <div className={`song-row ${isActive ? 'song-row--active' : ''}`} onClick={() => onPlay(song)}>
       <span className="song-row__index">{index}</span>
 
-      <img src={thumbnail} alt={title} className="song-row__thumb" />
+      <img src={thumbnail} alt={title} className="song-row__thumb" loading="lazy" decoding="async" />
 
       <div className="song-row__info">
         <span className="song-row__title">{title}</span>
@@ -35,7 +37,7 @@ function SongRow({
         icon={<Heart size={16} fill={isFavorite ? 'currentColor' : 'none'} />}
         onClick={(e) => {
           e.stopPropagation();
-          onToggleFavorite?.();
+          onToggleFavorite?.(id);
         }}
         active={isFavorite}
         size="sm"
@@ -96,4 +98,4 @@ function SongRow({
   );
 }
 
-export default SongRow;
+export default memo(SongRow);

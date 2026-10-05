@@ -1,45 +1,45 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback, memo } from 'react';
 import SearchBar from './SearchBar';
+
+const DEBOUNCE_MS = 350;
 
 function Header({ onSearch, onClearSearch }) {
   const [query, setQuery] = useState('');
-  const debounceRef = useRef(null);
+  const latest = useRef(''); // what is in the box right now (for Enter)
+  const timer = useRef(null);
 
-  const handleChange = (value) => {
+  const cancel = () => {
+    if (timer.current) clearTimeout(timer.current);
+  };
+
+  const handleChange = useCallback((value) => {
+    latest.current = value;
     setQuery(value);
-
-    if (debounceRef.current) {
-      clearTimeout(debounceRef.current);
-    }
+    cancel();
 
     if (value.trim() === '') {
       onClearSearch?.();
       return;
     }
 
-    // Wait 400ms after the user stops typing before actually searching
-    debounceRef.current = setTimeout(() => {
-      onSearch?.(value.trim());
-    }, 350);
-  };
+    // Wait until the user stops typing before actually searching
+    timer.current = setTimeout(() => onSearch?.(value.trim()), DEBOUNCE_MS);
+  }, [onSearch, onClearSearch]);
 
-  useEffect(() => {
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, []);
+  useEffect(() => cancel, []);
 
   // Enter = search right now, skip the debounce wait
-  const handleSubmit = () => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (query.trim()) onSearch?.(query.trim());
-  };
+  const handleSubmit = useCallback(() => {
+    cancel();
+    if (latest.current.trim()) onSearch?.(latest.current.trim());
+  }, [onSearch]);
 
-  const handleClear = () => {
+  const handleClear = useCallback(() => {
+    latest.current = '';
     setQuery('');
-    if (debounceRef.current) clearTimeout(debounceRef.current);
+    cancel();
     onClearSearch?.();
-  };
+  }, [onClearSearch]);
 
   return (
     <div className="header">
@@ -53,4 +53,4 @@ function Header({ onSearch, onClearSearch }) {
   );
 }
 
-export default Header;
+export default memo(Header);

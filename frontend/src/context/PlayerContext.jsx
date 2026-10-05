@@ -1,259 +1,303 @@
-import { createContext, useContext, useState, useRef, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from './AuthContext';
 import { historyApi } from '../api/backend';
 import { audioEngine } from '../audio/audioEngine';
+import { secureUrl } from '../utils/media';
 
+// Two contexts: everything except the clock, and the clock on its own.
+// The clock ticks ~4 times a second; only the few components that show it
+// (progress bars, lyrics) subscribe, so the rest of the app doesn't re-render.
 const PlayerContext = createContext(null);
+const TimeContext = createContext(0);
 
-const STORAGE_KEY = 'flur_player_state';
+const KEY = 'flur_player_state';
+const TIME_KEY = 'flur_player_time'; // small, written often: { id, t }
 
-// Read what the player looked like before the page was reloaded.
-// Wrapped in try/catch: storage can be blocked or hold bad data.
-function loadSavedState() {
+function read(k) {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(k);
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
   }
 }
+function write(k, v) {
+  try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* storage full or blocked */ }
+}
+function drop(k) {
+  try { localStorage.removeItem(k); } catch { /* ignore */ }
+}
 
-function clearSavedState() {
-  try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+// What the player looked like before the app was closed (only if someone is logged in).
+function restore(token) {
+  if (!token) return null;
+  const s = read(KEY);
+  if (!s) return null;
+  const t = read(TIME_KEY);
+  if (t && s.currentTrack && t.id === s.currentTrack.id) s.currentTime = t.t;
+  return s;
 }
 
 export function PlayerProvider({ children }) {
   const { token } = useAuth();
-  const audioRef = useRef(new Audio());
+  const [init] = useState(() => restore(token)); // storage is read once, not every render
 
-  // Restore the last session (only if someone is logged in)
-  const savedRef = useRef(token ? loadSavedState() : null);
-  const saved = savedRef.current;
-  // position (seconds) to jump to once the restored track's audio has loaded
-  const resumeTimeRef = useRef(saved?.currentTime || 0);
-  // id of a restored track — reopening the app must not count as a new listen
-  const restoredIdRef = useRef(saved?.currentTrack?.id ?? null);
+  const audioRef = useRef(null);
+  if (!audioRef.current) audioRef.current = new Audio();
+  const a = audioRef.current;
 
-  const [queue, setQueue] = useState(saved?.queue || []);
-  const [currentTrack, setCurrentTrack] = useState(saved?.currentTrack || null);
-  const [isPlaying, setIsPlaying] = useState(false); // always starts paused after a reload
-  const [currentTime, setCurrentTime] = useState(saved?.currentTime || 0);
-  const [volume, setVolumeState] = useState(saved?.volume ?? 70);
-  const [isShuffle, setIsShuffle] = useState(saved?.isShuffle || false);
-  const [isRepeat, setIsRepeat] = useState(saved?.isRepeat || false);
+  const [queue, setQueue] = useState(init?.queue || []);
+  const [currentTrack, setCurrentTrack] = useState(init?.currentTrack || null);
+  const [isPlaying, setIsPlaying] = useState(false); // always starts paused after a restart
+  const [currentTime, setCurrentTime] = useState(init?.currentTime || 0);
+  const [volume, setVolume] = useState(init?.volume ?? 70);
+  const [isShuffle, setIsShuffle] = useState(init?.isShuffle || false);
+  const [isRepeat, setIsRepeat] = useState(init?.isRepeat || false);
 
-  // keeps the latest play state available to async code below
-  const isPlayingRef = useRef(false);
-  isPlayingRef.current = isPlaying;
+  const resumeAt = useRef(init?.currentTime || 0); // jump here once the restored song has loaded
+  const restoredId = useRef(init?.currentTrack?.id ?? null); // restoring must not count as a new listen
+  const metaFn = useRef(null);
+  const backup = useRef(null); // the original link, if we upgraded it to https
+  const timeRef = useRef(currentTime);
 
-  // hand the <audio> element to the effects engine (EQ, speed, pitch, ...)
+  // Latest values for event handlers, so they never have to be re-attached.
+  const live = useRef({});
+  live.current = { queue, currentTrack, isPlaying, isShuffle, isRepeat, volume, token };
+
+  // Start playing; a failure must not leave the UI claiming "playing".
+  const play = useCallback(() => {
+    const p = a.play();
+    if (!p) return;
+    p.catch((err) => {
+      if (err.name === 'AbortError') return; // a newer load replaced this one
+      console.warn('Playback failed:', err);
+      if (err.name === 'NotAllowedError') setIsPlaying(false);
+    });
+  }, [a]);
+
+  // Put the saved position back once the song's metadata is ready.
+  const jumpTo = useCallback((t) => {
+    if (metaFn.current) a.removeEventListener('loadedmetadata', metaFn.current);
+    metaFn.current = null;
+    if (!(t > 0)) return;
+    metaFn.current = () => { a.currentTime = t; };
+    a.addEventListener('loadedmetadata', metaFn.current, { once: true });
+  }, [a]);
+
+  useEffect(() => { audioEngine.attachElement(a); }, [a]);
+  useEffect(() => { a.volume = volume / 100; }, [a, volume]);
+
+  // ---- load the song ----
+  // The song starts loading right away as plain audio. Nothing is awaited first:
+  // plain playback works with any server and any webview, while CORS mode (needed
+  // only for the equalizer / effects) can fail depending on where the app runs.
+  const trackId = currentTrack?.id;
+  const trackUrl = currentTrack?.streamUrl;
   useEffect(() => {
-    audioEngine.attachElement(audioRef.current);
-  }, []);
+    if (!trackUrl) return undefined;
+    const url = secureUrl(trackUrl);
+    backup.current = url !== trackUrl ? trackUrl : null;
+    let stale = false;
 
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!currentTrack?.streamUrl) return;
-    let cancelled = false;
+    const start = (cors) => {
+      if (stale) return;
+      const at = resumeAt.current;
+      resumeAt.current = 0;
+      jumpTo(at);
+      timeRef.current = at;
+      setCurrentTime(at);
 
-    const load = async () => {
-      // Can this stream go through Web Audio (needs CORS)? Cached per server,
-      // so only the first song pays for the check.
-      const corsOk = await audioEngine.supportsCors(currentTrack.streamUrl);
-      if (cancelled) return;
-
-      // crossOrigin has to be set BEFORE src, or effects would output silence
-      audio.crossOrigin = corsOk ? 'anonymous' : null;
-      audio.src = currentTrack.streamUrl;
-      audio.volume = volume / 100;
-
-      const resumeAt = resumeTimeRef.current;
-      resumeTimeRef.current = 0;
-      if (resumeAt > 0) {
-        // restored after a reload: continue from where it stopped
-        const onLoaded = () => {
-          audio.currentTime = resumeAt;
-          setCurrentTime(resumeAt);
-        };
-        audio.addEventListener('loadedmetadata', onLoaded, { once: true });
-      } else {
-        setCurrentTime(0);
-      }
-
+      a.crossOrigin = cors ? 'anonymous' : null; // must be set BEFORE src
+      a.preload = live.current.isPlaying ? 'auto' : 'metadata'; // a restored song doesn't download until played
+      a.src = url;
       audioEngine.onTrackLoaded();
-      if (isPlayingRef.current) {
+      if (live.current.isPlaying) {
         audioEngine.resume();
-        audio.play().catch((err) => console.warn('Playback failed:', err));
+        play();
       }
+      if (!cors) audioEngine.probe(url); // fills in the Equalizer page; never delays playback
     };
-    load();
 
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentTrack]);
+    if (audioEngine.needsCors()) audioEngine.prepare(url).then(start);
+    else start(false);
 
-  // Safety net: if a CORS-enabled load fails (server blocks it after all),
-  // reload the same song the normal way and switch effects off.
+    return () => { stale = true; };
+  }, [trackId, trackUrl, a, play, jumpTo]);
+
+  // Safety nets when a song fails to load.
   useEffect(() => {
-    const audio = audioRef.current;
-    const handleError = () => {
-      if (audio.crossOrigin === 'anonymous' && !audioEngine.graphActive && audio.src) {
-        const url = audio.src;
-        const at = audio.currentTime;
-        audioEngine.markCorsFailed(url);
-        audio.crossOrigin = null;
-        audio.src = url;
-        audio.addEventListener('loadedmetadata', () => { audio.currentTime = at; }, { once: true });
-        if (isPlayingRef.current) audio.play().catch(() => {});
-      }
+    const reload = (u) => {
+      const at = a.currentTime;
+      jumpTo(at);
+      a.src = u;
+      if (live.current.isPlaying) play();
     };
-    audio.addEventListener('error', handleError);
-    return () => audio.removeEventListener('error', handleError);
-  }, []);
+    const onError = () => {
+      const url = a.src;
+      if (!url) return;
+      // 1) CORS mode failed (server blocks it after all): same song, plain audio
+      if (a.crossOrigin === 'anonymous' && !audioEngine.graphActive) {
+        audioEngine.markCorsFailed(url);
+        a.crossOrigin = null;
+        reload(url);
+        return;
+      }
+      // 2) the https upgrade failed: try the original link once
+      if (backup.current) {
+        const u = backup.current;
+        backup.current = null;
+        reload(u);
+        return;
+      }
+      console.warn('Audio could not be loaded:', a.error?.code, a.error?.message, url);
+      setIsPlaying(false);
+    };
+    a.addEventListener('error', onError);
+    return () => a.removeEventListener('error', onError);
+  }, [a, play, jumpTo]);
 
   // Log every newly started track to the user's listen history
   // (powers the "Recently played" section on the Explorer page).
   useEffect(() => {
-    if (!token || !currentTrack?.id) return;
-    if (currentTrack.id === restoredIdRef.current) return; // restored, not newly played
-    restoredIdRef.current = null;
-    historyApi.record(token, currentTrack.id).catch((err) =>
+    if (!token || !trackId) return;
+    if (trackId === restoredId.current) return; // restored, not newly played
+    restoredId.current = null;
+    historyApi.record(token, trackId).catch((err) =>
       console.warn('Failed to record listen history:', err.message)
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentTrack?.id]);
+  }, [token, trackId]);
 
   useEffect(() => {
-    const audio = audioRef.current;
     if (isPlaying) {
-      audioEngine.resume(); // browsers keep Web Audio suspended until a user action
-      audio.play().catch((err) => console.warn('Playback failed:', err));
-    } else audio.pause();
-  }, [isPlaying]);
+      audioEngine.resume(); // Web Audio stays suspended until a user action
+      if (a.src) play();
+    } else {
+      a.pause();
+    }
+  }, [isPlaying, a, play]);
+
+  // ---- clock, end of song ----
+  const step = useCallback((dir) => {
+    const { queue: q, currentTrack: cur, isShuffle: shuffle } = live.current;
+    if (q.length === 0) return;
+    const i = q.findIndex((t) => t.id === cur?.id);
+    let j;
+    if (dir < 0) j = (i - 1 + q.length) % q.length;
+    else if (shuffle) {
+      j = Math.floor(Math.random() * q.length);
+      if (j === i && q.length > 1) j = (j + 1) % q.length; // never "skip" to the same song
+    } else j = (i + 1) % q.length;
+    setCurrentTrack(q[j]);
+    setIsPlaying(true);
+  }, []);
 
   useEffect(() => {
-    const audio = audioRef.current;
-    const handleTimeUpdate = () => setCurrentTime(audio.currentTime);
-    const handleEnded = () => {
-      if (isRepeat) {
-        audio.currentTime = 0;
-        audio.play().catch(() => {});
-      } else {
-        handleNext();
+    const onTime = () => {
+      const t = a.currentTime;
+      if (t !== timeRef.current) {
+        timeRef.current = t;
+        setCurrentTime(t);
       }
     };
-    audio.addEventListener('timeupdate', handleTimeUpdate);
-    audio.addEventListener('ended', handleEnded);
-    return () => {
-      audio.removeEventListener('timeupdate', handleTimeUpdate);
-      audio.removeEventListener('ended', handleEnded);
+    const onEnded = () => {
+      if (live.current.isRepeat) {
+        a.currentTime = 0;
+        play();
+      } else {
+        step(1);
+      }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isRepeat, currentTrack]);
+    a.addEventListener('timeupdate', onTime);
+    a.addEventListener('ended', onEnded);
+    return () => {
+      a.removeEventListener('timeupdate', onTime);
+      a.removeEventListener('ended', onEnded);
+    };
+  }, [a, play, step]);
 
-  // Save the player so a page reload doesn't wipe the bar and the queue.
-  // Position is saved about every 2 seconds, everything else on change.
-  const savedSecond = Math.floor(currentTime / 2);
+  // ---- save the player so a restart doesn't wipe the bar and the queue ----
+  const saveAll = useCallback(() => {
+    const s = live.current;
+    if (!s.token) return;
+    write(KEY, {
+      queue: s.queue, currentTrack: s.currentTrack, currentTime: timeRef.current,
+      volume: s.volume, isShuffle: s.isShuffle, isRepeat: s.isRepeat,
+    });
+  }, []);
+
+  // everything except the position: when it changes (after a short pause)
   useEffect(() => {
-    if (!token) return;
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({
-        queue, currentTrack, currentTime: audioRef.current.currentTime || currentTime,
-        volume, isShuffle, isRepeat,
-      }));
-    } catch { /* storage full or blocked — not critical */ }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queue, currentTrack, volume, isShuffle, isRepeat, savedSecond, token]);
+    if (!token) return undefined;
+    const id = setTimeout(saveAll, 400);
+    return () => clearTimeout(id);
+  }, [token, queue, currentTrack, volume, isShuffle, isRepeat, saveAll]);
 
-  // On logout: stop playback and forget the saved session
+  // the position: every 5 seconds while playing, and when the window closes
+  useEffect(() => {
+    if (!token) return undefined;
+    const saveTime = () => write(TIME_KEY, { id: live.current.currentTrack?.id, t: timeRef.current });
+    const onHide = () => { saveAll(); saveTime(); };
+    window.addEventListener('pagehide', onHide);
+    const id = isPlaying ? setInterval(saveTime, 5000) : null;
+    if (!isPlaying) saveTime();
+    return () => {
+      window.removeEventListener('pagehide', onHide);
+      if (id) clearInterval(id);
+    };
+  }, [token, isPlaying, saveAll]);
+
+  // On logout: stop playback, release the stream and forget the saved session
   useEffect(() => {
     if (token) return;
-    clearSavedState();
-    audioRef.current.pause();
+    drop(KEY);
+    drop(TIME_KEY);
+    a.pause();
+    a.removeAttribute('src');
+    a.load();
     setQueue([]);
     setCurrentTrack(null);
     setIsPlaying(false);
+    timeRef.current = 0;
     setCurrentTime(0);
-  }, [token]);
+  }, [token, a]);
 
-  // playTrack now optionally takes the full list it was played from
-  // (e.g. the Songs page's 50 recommended tracks) — that list BECOMES
-  // the queue, so next/prev and the Queue panel reflect what you were
-  // actually browsing, not a leftover fixed list.
+  // ---- actions (stable, so memoized children don't re-render) ----
+  // playTrack optionally takes the full list it was played from (e.g. the Songs
+  // page's tracks) — that list BECOMES the queue, so next/prev and the Queue
+  // panel reflect what you were actually browsing.
   const playTrack = useCallback((song, songList = null) => {
     if (songList) {
       setQueue(songList);
     } else {
-      // No list given (e.g. played from Queue panel itself) — just make
-      // sure the song is present in the existing queue so next/prev works.
-      setQueue((prevQueue) => {
-        const alreadyInQueue = prevQueue.some((t) => t.id === song.id);
-        return alreadyInQueue ? prevQueue : [...prevQueue, song];
-      });
+      // No list given (e.g. played from the Queue panel itself): just make sure
+      // the song is in the queue so next/prev works.
+      setQueue((q) => (q.some((t) => t.id === song.id) ? q : [...q, song]));
     }
     setCurrentTrack(song);
     setIsPlaying(true);
   }, []);
 
-  const togglePlay = useCallback(() => setIsPlaying((prev) => !prev), []);
+  const togglePlay = useCallback(() => setIsPlaying((p) => !p), []);
+  const next = useCallback(() => step(1), [step]);
+  const prev = useCallback(() => step(-1), [step]);
+  const toggleShuffle = useCallback(() => setIsShuffle((p) => !p), []);
+  const toggleRepeat = useCallback(() => setIsRepeat((p) => !p), []);
 
-  const handleNext = useCallback(() => {
-    setQueue((currentQueue) => {
-      if (currentQueue.length === 0) return currentQueue;
-      const currentIndex = currentQueue.findIndex((t) => t.id === currentTrack?.id);
-      const nextIndex = isShuffle
-        ? Math.floor(Math.random() * currentQueue.length)
-        : (currentIndex + 1) % currentQueue.length;
-      setCurrentTrack(currentQueue[nextIndex]);
-      setIsPlaying(true);
-      return currentQueue;
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentTrack, isShuffle]);
+  const seek = useCallback((t) => {
+    a.currentTime = t;
+    timeRef.current = t;
+    setCurrentTime(t);
+  }, [a]);
 
-  const handlePrev = useCallback(() => {
-    setQueue((currentQueue) => {
-      if (currentQueue.length === 0) return currentQueue;
-      const currentIndex = currentQueue.findIndex((t) => t.id === currentTrack?.id);
-      const prevIndex = (currentIndex - 1 + currentQueue.length) % currentQueue.length;
-      setCurrentTrack(currentQueue[prevIndex]);
-      setIsPlaying(true);
-      return currentQueue;
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentTrack]);
-
-  const seek = useCallback((time) => {
-    audioRef.current.currentTime = time;
-    setCurrentTime(time);
-  }, []);
-
-  const setVolume = useCallback((vol) => {
-    setVolumeState(vol);
-    audioRef.current.volume = vol / 100;
-  }, []);
-
-  const value = {
-    queue,
-    currentTrack,
-    isPlaying,
-    currentTime,
-    volume,
-    isShuffle,
-    isRepeat,
-    playTrack,
-    togglePlay,
-    next: handleNext,
-    prev: handlePrev,
-    seek,
-    setVolume,
-    toggleShuffle: () => setIsShuffle((p) => !p),
-    toggleRepeat: () => setIsRepeat((p) => !p),
-  };
+  const value = useMemo(() => ({
+    queue, currentTrack, isPlaying, volume, isShuffle, isRepeat,
+    playTrack, togglePlay, next, prev, seek, setVolume, toggleShuffle, toggleRepeat,
+  }), [queue, currentTrack, isPlaying, volume, isShuffle, isRepeat,
+    playTrack, togglePlay, next, prev, seek, toggleShuffle, toggleRepeat]);
 
   return (
     <PlayerContext.Provider value={value}>
-      {children}
+      <TimeContext.Provider value={currentTime}>{children}</TimeContext.Provider>
     </PlayerContext.Provider>
   );
 }
@@ -262,4 +306,9 @@ export function usePlayer() {
   const context = useContext(PlayerContext);
   if (!context) throw new Error('usePlayer must be used within a PlayerProvider');
   return context;
+}
+
+// Seconds played in the current song. Re-renders ~4x/second: use it only where it is shown.
+export function usePlayerTime() {
+  return useContext(TimeContext);
 }

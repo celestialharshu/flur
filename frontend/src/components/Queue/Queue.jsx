@@ -4,6 +4,7 @@ import { usePlayer } from '../../context/PlayerContext';
 
 function Queue() {
   const { queue, currentTrack, playTrack } = usePlayer();
+  const activeId = currentTrack?.id;
 
   return (
     <div className="queue">
@@ -12,12 +13,9 @@ function Queue() {
         {queue.map((track) => (
           <QueueItem
             key={track.id}
-            thumbnail={track.thumbnail}
-            title={track.title}
-            artist={track.artist}
-            duration={track.duration}
-            isActive={track.id === currentTrack.id}
-            onClick={() => playTrack(track)}
+            track={track}
+            isActive={track.id === activeId}
+            onPlay={playTrack}
           />
         ))}
       </div>

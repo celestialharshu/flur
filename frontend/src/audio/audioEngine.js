@@ -11,7 +11,11 @@ import { PITCH_WORKLET_NAME, PITCH_WORKLET_SOURCE } from './pitchWorklet';
 // Playback speed and "varispeed" pitch use the <audio> element's own
 // playbackRate/preservesPitch, so they work even when Web Audio can't.
 // Everything else needs Web Audio, which only works if the audio server sends
-// CORS headers — we probe for that before touching the element.
+// CORS headers.
+//
+// IMPORTANT: normal playback never waits for, or depends on, that CORS check.
+// Songs load as plain <audio> (works with any server, in any webview). The
+// element is switched to CORS mode only when an effect is actually in use.
 // ---------------------------------------------------------------------------
 
 const STORAGE_KEY = 'flur_audio_fx';
@@ -131,8 +135,12 @@ class AudioEngine {
     this.building = false;
     this.irKey = '';
     this.irTimer = null;
+    this.saveTimer = null;
+    this.probing = null;
     this.listeners = new Set();
     this.snapshot = this._makeSnapshot();
+    // write pending settings before the window closes
+    if (typeof window !== 'undefined') window.addEventListener('pagehide', () => this._flush());
   }
 
   // ---------- store API (used by the React hook) ----------
@@ -186,7 +194,16 @@ class AudioEngine {
     }
   }
 
+  // Sliders fire many times a second: write to storage once they settle.
   _save() {
+    clearTimeout(this.saveTimer);
+    this.saveTimer = setTimeout(() => this._flush(), 300);
+  }
+
+  _flush() {
+    if (!this.saveTimer) return;
+    clearTimeout(this.saveTimer);
+    this.saveTimer = null;
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state)); } catch { /* ignore */ }
   }
 
@@ -199,23 +216,49 @@ class AudioEngine {
     this._applyNative();
   }
 
+  // Should the next song load in CORS mode? Only when effects need Web Audio.
+  // needsCors() is instant; only a song that needs effects waits in prepare().
+  needsCors() {
+    // an element wired to Web Audio must stay in CORS mode
+    return this.graphActive || this._wantsFx();
+  }
+
+  async prepare(url) {
+    if (this.graphActive) return true;
+    return this.supportsCors(url);
+  }
+
+  // Fill in corsOk for the Equalizer page without delaying playback.
+  probe(url) {
+    if (this.corsOk === null) this.supportsCors(url).catch(() => {});
+  }
+
   // Can this stream be run through Web Audio? (needs CORS headers from the server)
-  async supportsCors(url) {
+  supportsCors(url) {
     let origin;
-    try { origin = new URL(url).origin; } catch { return false; }
+    try { origin = new URL(url).origin; } catch { return Promise.resolve(false); }
 
     const cached = this.corsCache.get(origin);
     if (cached && (cached.ok || Date.now() - cached.at < 2 * 60 * 1000)) {
-      this.corsOk = cached.ok;
-      return cached.ok;
+      if (this.corsOk !== cached.ok) { this.corsOk = cached.ok; this._apply(); this._emit(); }
+      return Promise.resolve(cached.ok);
     }
 
+    // one check per server at a time
+    if (this.probing && this.probing.origin === origin) return this.probing.promise;
+    const promise = this._probe(url, origin).finally(() => { this.probing = null; });
+    this.probing = { origin, promise };
+    return promise;
+  }
+
+  async _probe(url, origin) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 5000);
     let ok = false;
     try {
-      // 1-byte range request; if headers come back, CORS is allowed
-      await fetch(url, { mode: 'cors', headers: { Range: 'bytes=0-0' }, signal: ctrl.signal, cache: 'no-store' });
+      // A plain GET (no custom headers, so no CORS preflight): if the headers come
+      // back, the server allows CORS. The body is dropped right away.
+      await fetch(url, { mode: 'cors', signal: ctrl.signal, cache: 'no-store' });
       ok = true;
     } catch {
       ok = false;
@@ -257,6 +300,18 @@ class AudioEngine {
     return this.graphActive && this.workletReady;
   }
 
+  // Is any effect switched on in the saved settings? (does not depend on the server)
+  _wantsFx() {
+    const { eq, tone, pitch, reverb, spatial } = this.state;
+    return (
+      (eq.enabled && eq.gains.some((g) => Math.abs(g) > 0.01)) ||
+      Math.abs(tone.bass) > 0.01 || Math.abs(tone.treble) > 0.01 ||
+      Math.abs(pitch.semitones) > 0.01 ||
+      (reverb.enabled && reverb.wet > 0.01) ||
+      spatial.mode !== 'stereo'
+    );
+  }
+
   _needsGraph() {
     const { eq, tone, reverb, spatial } = this.state;
     const eqActive = eq.enabled && eq.gains.some((g) => Math.abs(g) > 0.01);
@@ -281,21 +336,52 @@ class AudioEngine {
 
   _apply() {
     this._applyNative();
-    if (this._needsGraph() && this.corsOk === true && !this.graphActive && !this.building) {
-      this._buildGraph();
+    if (!this.graphActive && !this.building && this.audio?.src && this._wantsFx() && this.corsOk !== false) {
+      if (this.corsOk === true && this._needsGraph()) this._buildGraph();
+      else if (this.corsOk === null) this.supportsCors(this.audio.src).catch(() => {});
     }
     if (this.graphActive) this._pushParams();
+  }
+
+  // The song was loaded as plain audio. Reload it (same position) in CORS mode
+  // so Web Audio is allowed to process it.
+  async _reloadWithCors() {
+    const a = this.audio;
+    if (!a || !a.src) return false;
+    if (a.crossOrigin === 'anonymous') return true;
+    if (!(await this.supportsCors(a.src))) return false;
+
+    const src = a.src;
+    const at = a.currentTime;
+    const resume = !a.paused;
+    a.crossOrigin = 'anonymous';
+    a.src = src;
+    await new Promise((resolve) => {
+      const end = () => {
+        a.removeEventListener('loadedmetadata', end);
+        a.removeEventListener('error', end);
+        resolve();
+      };
+      a.addEventListener('loadedmetadata', end);
+      a.addEventListener('error', end);
+    });
+    if (a.src !== src) return false; // another song was picked meanwhile
+    if (at > 0) a.currentTime = at;
+    if (resume) a.play().catch(() => {});
+    return a.crossOrigin === 'anonymous' && !a.error;
   }
 
   async _buildGraph() {
     const audio = this.audio;
     if (!audio || this.building || this.graphActive) return;
-    // crossOrigin must have been set BEFORE the source loaded, otherwise the
-    // graph would output silence for this element.
-    if (audio.crossOrigin !== 'anonymous') return;
 
     this.building = true;
     try {
+      // crossOrigin must have been set BEFORE the source loaded, otherwise the
+      // graph would output silence for this element.
+      if (audio.crossOrigin !== 'anonymous' && !(await this._reloadWithCors())) return;
+      if (audio.crossOrigin !== 'anonymous') return;
+
       const Ctor = window.AudioContext || window.webkitAudioContext;
       const ctx = new Ctor({ latencyHint: 'playback' });
 

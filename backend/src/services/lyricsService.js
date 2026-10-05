@@ -1,10 +1,13 @@
 import axios from 'axios';
+import { TtlCache } from '../utils/async.js';
 
 const LRCLIB = 'https://lrclib.net/api';
 const HEADERS = { 'User-Agent': 'Flur Music Player (personal project)' };
 
-// song key -> result (also caches "not found" so we don't re-query LRCLIB)
-const cache = new Map();
+// song key -> result (also caches "not found" so we don't re-query LRCLIB).
+// Capped, so a long-running server doesn't grow forever.
+const cache = new TtlCache(1000);
+const NOT_FOUND = Symbol("none"); // stands for "looked up, nothing found" (a stored null would look like "never looked up")
 
 function decodeEntities(str = '') {
   return str
@@ -87,7 +90,8 @@ export async function getLyrics({ title, artist, album, duration }) {
   const dur = Math.round(Number(duration)) || undefined;
   const key = `${track}|${art}`.toLowerCase();
 
-  if (cache.has(key)) return cache.get(key);
+  const known = cache.get(key);
+  if (known !== undefined) return known === NOT_FOUND ? null : known;
 
   let record =
     (await tryGet({ track_name: track, artist_name: art, album_name: decodeEntities(album || ''), duration: dur })) ||
@@ -96,6 +100,6 @@ export async function getLyrics({ title, artist, album, duration }) {
     (await trySearch({ q: `${track} ${art}` }, dur));
 
   const result = shape(record);
-  cache.set(key, result);
+  cache.set(key, result === null ? NOT_FOUND : result);
   return result;
 }

@@ -1,5 +1,6 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { playlistsApi } from '../api/backend';
+import { secureUrl } from '../utils/media';
 import { useAuth } from './AuthContext';
 
 const PlaylistsContext = createContext(null);
@@ -19,7 +20,7 @@ export function PlaylistsProvider({ children }) {
           id: p.id,
           title: p.title,
           songIds: p.songs.map((s) => s.songId),
-          thumbnails: p.songs.slice(0, 4).map((s) => s.thumbnail).filter(Boolean),
+          thumbnails: p.songs.slice(0, 4).map((s) => secureUrl(s.thumbnail)).filter(Boolean),
         })));
       })
       .catch((err) => console.error('Failed to load playlists:', err.message));
@@ -54,11 +55,12 @@ export function PlaylistsProvider({ children }) {
     }
   }, [token, reload]);
 
-  return (
-    <PlaylistsContext.Provider value={{ playlists, addSongToPlaylist, removeSongFromPlaylist, createPlaylist }}>
-      {children}
-    </PlaylistsContext.Provider>
+  const value = useMemo(
+    () => ({ playlists, addSongToPlaylist, removeSongFromPlaylist, createPlaylist }),
+    [playlists, addSongToPlaylist, removeSongFromPlaylist, createPlaylist]
   );
+
+  return <PlaylistsContext.Provider value={value}>{children}</PlaylistsContext.Provider>;
 }
 
 export function usePlaylists() {

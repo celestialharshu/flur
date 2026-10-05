@@ -23,10 +23,11 @@ function AlbumSection({ title = 'Albums', albums = [], onPlayAlbum, onOpenAlbum 
         {albums.map((album) => (
           <AlbumCard
             key={album.id}
+            id={album.id}
             coverUrl={album.coverUrl}
             title={album.title}
             artist={album.artist}
-            onOpen={onOpenAlbum ? () => onOpenAlbum(album.id) : undefined}
+            onOpen={onOpenAlbum}
             onPlay={onPlayAlbum ? onPlayAlbum(album) : undefined}
           />
         ))}

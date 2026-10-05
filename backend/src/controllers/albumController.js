@@ -3,7 +3,7 @@ import { getAllAlbums, getAlbumById, getAlbumSongs } from '../models/albumModel.
 export async function listAlbums(req, res) {
   try {
     const limit = Math.min(parseInt(req.query.limit, 10) || 30, 100);
-    const offset = parseInt(req.query.offset, 10) || 0;
+    const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
     // fetch one extra row so we can tell the client whether more exist
     const rows = await getAllAlbums(limit + 1, offset);
     const hasMore = rows.length > limit;
@@ -19,10 +19,9 @@ export async function getAlbum(req, res) {
     const id = parseInt(req.params.id, 10);
     if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid album id.' });
 
-    const album = await getAlbumById(id);
+    const [album, songs] = await Promise.all([getAlbumById(id), getAlbumSongs(id)]);
     if (!album) return res.status(404).json({ error: 'Album not found.' });
 
-    const songs = await getAlbumSongs(id);
     res.json({ album, songs });
   } catch (error) {
     console.error('Get album error:', error);

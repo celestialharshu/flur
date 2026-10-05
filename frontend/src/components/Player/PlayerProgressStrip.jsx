@@ -1,7 +1,8 @@
-import { usePlayer } from '../../context/PlayerContext';
+import { usePlayer, usePlayerTime } from '../../context/PlayerContext';
 
 function PlayerProgressStrip() {
-  const { currentTime, currentTrack, seek } = usePlayer();
+  const { currentTrack, seek } = usePlayer();
+  const currentTime = usePlayerTime();
   const duration = currentTrack.durationSeconds || 0;
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
 

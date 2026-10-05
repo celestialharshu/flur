@@ -7,13 +7,10 @@ export function requireAuth(req, res, next) {
     return res.status(401).json({ error: 'No token provided.' });
   }
 
-  const token = authHeader.split(' ')[1];
-
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded; // { userId, role }
+    req.user = jwt.verify(authHeader.slice(7), process.env.JWT_SECRET); // { userId, role }
     next();
-  } catch (error) {
+  } catch {
     return res.status(401).json({ error: 'Invalid or expired token.' });
   }
 }

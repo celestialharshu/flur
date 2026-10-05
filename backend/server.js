@@ -1,11 +1,10 @@
+// Loads .env before anything else reads process.env (imports run in order).
+import 'dotenv/config';
 // NOTE: Vercel's Express detection looks for an entrypoint file that imports
 // express, so this import must stay even though `app` is built in src/app.js.
 import express from 'express'; // eslint-disable-line no-unused-vars
-import dotenv from 'dotenv';
 import app from './src/app.js';
 import pool from './src/config/db.js';
-
-dotenv.config();
 
 const PORT = process.env.PORT || 4000;
 

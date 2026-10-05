@@ -52,16 +52,6 @@ export async function searchArtistsDb(tokens, limit = 20) {
   return result.rows;
 }
 
-export async function getAlbumsByIds(ids) {
-  if (ids.length === 0) return [];
-  const result = await pool.query(
-    `SELECT al.*, a.name AS artist_name
-     FROM albums al LEFT JOIN artists a ON a.id = al.artist_id
-     WHERE al.id = ANY($1)`,
-    [ids]
-  );
-  return result.rows;
-}
 
 export async function getArtistsByIds(ids) {
   if (ids.length === 0) return [];

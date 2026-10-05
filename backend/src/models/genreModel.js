@@ -19,13 +19,12 @@ export async function saveUserGenrePreferences(userId, genreIds) {
       [userId]
     );
 
-    for (let i = 0; i < genreIds.length; i++) {
-      await client.query(
-        `INSERT INTO user_genre_preferences (user_id, genre_id, rank)
-         VALUES ($1, $2, $3)`,
-        [userId, genreIds[i], i + 1]
-      );
-    }
+    await client.query(
+      `INSERT INTO user_genre_preferences (user_id, genre_id, rank)
+       SELECT $1, g.genre_id, g.rank::int
+       FROM unnest($2::int[]) WITH ORDINALITY AS g(genre_id, rank)`,
+      [userId, genreIds]
+    );
 
     await client.query(
       `UPDATE users SET has_completed_onboarding = TRUE WHERE id = $1`,

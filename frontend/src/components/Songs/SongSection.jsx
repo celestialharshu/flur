@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useCallback } from 'react';
 import { Play } from 'lucide-react';
 import ScrollArrows from '../common/ScrollArrows';
 import { SongCard, SongTile } from './SongCard';
@@ -10,29 +10,28 @@ import { useFavorites } from '../../context/FavoritesContext';
 function SongSection({ title, subtitle, songs = [], layout = 'row', emptyMessage }) {
   const scrollRef = useRef(null);
   const { currentTrack, isPlaying, playTrack, togglePlay } = usePlayer();
-  const { isFavorite, toggleFavorite } = useFavorites();
+  const { favoriteIds, toggleFavorite } = useFavorites();
+  const activeId = currentTrack?.id;
 
   const scrollBy = (distance) => scrollRef.current?.scrollBy({ left: distance, behavior: 'smooth' });
 
-  const handlePlay = (song) => {
-    if (currentTrack?.id === song.id) togglePlay();
+  const handlePlay = useCallback((song) => {
+    if (activeId === song.id) togglePlay();
     else playTrack(song, songs);
-  };
+  }, [activeId, songs, playTrack, togglePlay]);
 
-  const renderItem = (song) => {
-    const Item = layout === 'grid' ? SongTile : SongCard;
-    return (
-      <Item
-        key={song.id}
-        song={song}
-        isActive={currentTrack?.id === song.id}
-        isPlaying={isPlaying}
-        isFavorite={isFavorite(song.id)}
-        onPlay={() => handlePlay(song)}
-        onToggleFavorite={() => toggleFavorite(song.id)}
-      />
-    );
-  };
+  const Item = layout === 'grid' ? SongTile : SongCard;
+  const items = songs.map((song) => (
+    <Item
+      key={song.id}
+      song={song}
+      isActive={activeId === song.id}
+      isPlaying={activeId === song.id && isPlaying}
+      isFavorite={favoriteIds.has(song.id)}
+      onPlay={handlePlay}
+      onToggleFavorite={toggleFavorite}
+    />
+  ));
 
   return (
     <section className="section">
@@ -56,9 +55,9 @@ function SongSection({ title, subtitle, songs = [], layout = 'row', emptyMessage
       {songs.length === 0 ? (
         <p className="text-secondary section__empty">{emptyMessage}</p>
       ) : layout === 'grid' ? (
-        <div className="song-grid">{songs.map(renderItem)}</div>
+        <div className="song-grid">{items}</div>
       ) : (
-        <div className="scroll-row" ref={scrollRef}>{songs.map(renderItem)}</div>
+        <div className="scroll-row" ref={scrollRef}>{items}</div>
       )}
     </section>
   );

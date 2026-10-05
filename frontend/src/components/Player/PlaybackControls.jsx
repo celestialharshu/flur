@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Shuffle, SkipBack, Play, Pause, SkipForward, Repeat } from 'lucide-react';
 import IconButton from '../common/IconButton';
 
@@ -55,4 +56,4 @@ function PlaybackControls({
   );
 }
 
-export default PlaybackControls;
+export default memo(PlaybackControls);

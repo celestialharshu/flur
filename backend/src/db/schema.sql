@@ -125,6 +125,12 @@ CREATE INDEX idx_playlist_songs_playlist ON playlist_songs(playlist_id);
 CREATE INDEX idx_favorites_user ON favorites(user_id);
 CREATE INDEX idx_listen_history_user ON listen_history(user_id);
 CREATE INDEX idx_user_genre_preferences_user ON user_genre_preferences(user_id);
+CREATE INDEX idx_songs_external_id ON songs(external_id);
+CREATE INDEX idx_songs_artist ON songs(artist_id);
+CREATE INDEX idx_albums_artist_title ON albums(artist_id, title);
+CREATE INDEX idx_albums_created ON albums(created_at DESC);
+CREATE INDEX idx_listen_history_user_song ON listen_history(user_id, song_id, played_at DESC);
+CREATE INDEX idx_playlists_user ON playlists(user_id);
 
 CREATE TABLE user_feed_cache (
   id SERIAL PRIMARY KEY,

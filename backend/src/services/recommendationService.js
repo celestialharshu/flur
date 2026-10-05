@@ -1,41 +1,31 @@
-import { searchJioSaavn } from './jiosaavnService.js';
-import { upsertArtist } from '../models/artistModel.js';
-import { upsertAlbum } from '../models/albumModel.js';
-import { upsertSong, getSongsByIds } from '../models/songModel.js';
+import { searchJioSaavn, getPrimaryArtistName } from './jiosaavnService.js';
+import { persistCandidates } from './catalogService.js';
 import { getUserGenrePreferences } from '../models/genreModel.js';
 import { getFeedCache, saveFeedCache } from '../models/feedCacheModel.js';
-import { getPrimaryArtistName } from './jiosaavnService.js';
+import { mapLimit } from '../utils/async.js';
 
 const RANK_WEIGHTS = { 1: 1.0, 2: 0.85, 3: 0.7, 4: 0.55, 5: 0.4 };
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const SCRAPER_CONCURRENCY = 3; // the scraper is fragile: never hit it with many calls at once
 
 function normalizeKey(title, artistName) {
   return `${title.trim().toLowerCase()}|${getPrimaryArtistName(artistName).trim().toLowerCase()}`;
 }
 
-async function fetchAndPersistSongsForGenre(genre) {
-  const allCandidates = [];
-
-  for (const term of genre.search_terms) {
-    try {
-      const results = await searchJioSaavn(term);
-      allCandidates.push(...results);
-    } catch (error) {
-      console.error(`Search failed for term "${term}":`, error.message);
-    }
-  }
-
+// Keeps one version of each real song (the same track often appears on several
+// compilations): prefer the one with an album, then the most played.
+function dedupeCandidates(allCandidates) {
   // Dedup layer 1: within this genre's own results, the same real song
   // often appears multiple times (different album compilations on JioSaavn
   // carrying the identical track). Collapse those BEFORE persisting/scoring,
   // keeping whichever version has an album attached and the highest play count.
-  const dedupedCandidates = new Map();
+  const deduped = new Map();
   for (const song of allCandidates) {
     const key = normalizeKey(song.title, song.artistName);
-    const existing = dedupedCandidates.get(key);
+    const existing = deduped.get(key);
 
     if (!existing) {
-      dedupedCandidates.set(key, song);
+      deduped.set(key, song);
       continue;
     }
 
@@ -46,36 +36,28 @@ async function fetchAndPersistSongsForGenre(genre) {
       (currentHasAlbum === existingHasAlbum && song.playCount > existing.playCount);
 
     if (currentIsBetter) {
-      dedupedCandidates.set(key, song);
+      deduped.set(key, song);
     }
   }
+  return deduped;
+}
+
+async function persistGenre(genre, allCandidates) {
+  const deduped = dedupeCandidates(allCandidates);
+  const keys = [...deduped.keys()];
+  const saved = await persistCandidates([...deduped.values()], genre.id);
 
   const persisted = [];
-  for (const song of dedupedCandidates.values()) {
-    const artistId = await upsertArtist(getPrimaryArtistName(song.artistName));
-    const albumId = song.albumTitle
-      ? await upsertAlbum({ title: song.albumTitle, artistId, coverUrl: song.thumbnailUrl })
-      : null;
-    const songId = await upsertSong({
-      externalId: song.externalId,
-      title: song.title,
-      artistId,
-      albumId,
-      genreId: genre.id,
-      durationSeconds: song.durationSeconds,
-      thumbnailUrl: song.thumbnailUrl,
-      streamUrl: song.streamUrl,
-      playCount: song.playCount,
-    });
+  saved.forEach(({ song, songId, albumId }, i) => {
+    if (songId === null) return;
     persisted.push({
       songId,
       albumId,
       playCount: song.playCount,
       genreRank: genre.rank,
-      dedupeKey: normalizeKey(song.title, song.artistName),
+      dedupeKey: keys[i],
     });
-  }
-
+  });
   return persisted;
 }
 
@@ -128,10 +110,18 @@ export async function generateFeedForUser(userId) {
     throw new Error('User has not completed onboarding — no genre preferences found.');
   }
 
+  // Ask the scraper for every search term (a few at a time), then save each genre's songs.
+  const tasks = preferences.flatMap((genre) => genre.search_terms.map((term) => ({ genre, term })));
+  const found = await mapLimit(tasks, SCRAPER_CONCURRENCY, ({ term }) => searchJioSaavn(term)); // [] on failure
+
+  const perGenre = preferences.map(() => []);
+  tasks.forEach(({ genre }, i) => perGenre[preferences.indexOf(genre)].push(...found[i]));
+
+  // One genre after the other: the same song can appear in two genres, and saving
+  // them at the same time could create it twice.
   const allEntries = [];
-  for (const genre of preferences) {
-    const entries = await fetchAndPersistSongsForGenre(genre);
-    allEntries.push(...entries);
+  for (let i = 0; i < preferences.length; i++) {
+    allEntries.push(...(await persistGenre(preferences[i], perGenre[i])));
   }
 
   const scoredSongs = scoreEntries(allEntries);

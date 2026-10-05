@@ -2,15 +2,15 @@ import { searchJioSaavn } from './jiosaavnService.js';
 import { persistResults } from './discoverService.js';
 import { attachRealPhotos } from './artistImageService.js';
 import { getSongsByIds } from '../models/songModel.js';
+import { getAlbumsByIds } from '../models/albumModel.js';
 import {
-  searchSongsDb, searchAlbumsDb, searchArtistsDb, getAlbumsByIds, getArtistsByIds,
+  searchSongsDb, searchAlbumsDb, searchArtistsDb, getArtistsByIds,
 } from '../models/searchModel.js';
+import { TtlCache } from '../utils/async.js';
 
 const REMOTE_TIMEOUT_MS = 9000;
 const REMOTE_PERSIST_LIMIT = 15;
-const CACHE_TTL_MS = 10 * 60 * 1000;
-const CACHE_MAX = 200;
-const cache = new Map(); // normalized query -> { at, value }
+const cache = new TtlCache(200, 10 * 60 * 1000); // normalized query -> result
 
 // ---------- text helpers ----------
 function normalize(str = '') {
@@ -119,7 +119,7 @@ export async function searchAll(rawQuery) {
   const tokens = q.split(' ').filter(Boolean).slice(0, 6);
 
   const hit = cache.get(q);
-  if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.value;
+  if (hit) return hit;
 
   // 1) local DB + JioSaavn in parallel
   const [dbSongs, dbAlbums, dbArtists, remote] = await Promise.all([
@@ -148,7 +148,11 @@ export async function searchAll(rawQuery) {
   const albumMap = new Map(dbAlbums.map((a) => [a.id, a]));
   const topAlbumIds = [...new Set(songs.slice(0, 10).map((s) => s.album_id).filter(Boolean))]
     .filter((id) => !albumMap.has(id));
-  for (const a of await getAlbumsByIds(topAlbumIds)) albumMap.set(a.id, { ...a, fromTopSong: true });
+  const artistMap = new Map(dbArtists.map((a) => [a.id, a]));
+  const topArtistIds = [...new Set(songs.slice(0, 10).map((s) => s.artist_id).filter(Boolean))]
+    .filter((id) => !artistMap.has(id));
+  const [topAlbums, topArtists] = await Promise.all([getAlbumsByIds(topAlbumIds), getArtistsByIds(topArtistIds)]);
+  for (const a of topAlbums) albumMap.set(a.id, { ...a, fromTopSong: true });
 
   const albums = [...albumMap.values()]
     .map((a) => {
@@ -162,10 +166,7 @@ export async function searchAll(rawQuery) {
     .map((x) => x.a);
 
   // 4) artists: DB name matches + artists of the best songs
-  const artistMap = new Map(dbArtists.map((a) => [a.id, a]));
-  const topArtistIds = [...new Set(songs.slice(0, 10).map((s) => s.artist_id).filter(Boolean))]
-    .filter((id) => !artistMap.has(id));
-  for (const a of await getArtistsByIds(topArtistIds)) artistMap.set(a.id, { ...a, fromTopSong: true });
+  for (const a of topArtists) artistMap.set(a.id, { ...a, fromTopSong: true });
 
   const artists = [...artistMap.values()]
     .filter((a) => a.name && a.name !== 'Unknown Artist')
@@ -188,7 +189,6 @@ export async function searchAll(rawQuery) {
     artists: artists.map((a) => ({ id: a.id, name: a.name, avatar_url: a.avatar_url })),
   };
 
-  if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value);
-  cache.set(q, { at: Date.now(), value });
+  cache.set(q, value);
   return value;
 }

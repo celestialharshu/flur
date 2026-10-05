@@ -27,10 +27,11 @@ function PlaylistsPage({ onOpenPlaylist }) {
         {playlists.map((playlist) => (
           <PlaylistCard
             key={playlist.id}
+            id={playlist.id}
             thumbnails={playlist.thumbnails}
             title={playlist.title}
             songCount={playlist.songIds.length}
-            onClick={() => onOpenPlaylist(playlist.id)}
+            onOpen={onOpenPlaylist}
           />
         ))}
       </div>

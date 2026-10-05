@@ -2,12 +2,9 @@ import { useState, useEffect } from 'react';
 import AlbumCard from '../components/Albums/AlbumCard';
 import { useAuth } from '../context/AuthContext';
 import { albumsApi } from '../api/backend';
+import { mapAlbum } from '../utils/mapSong';
 
 const PAGE_SIZE = 30;
-
-function mapAlbum(a) {
-  return { id: a.id, title: a.title, artist: a.artist_name, coverUrl: a.cover_url };
-}
 
 function AlbumsPage({ onOpenAlbum }) {
   const { token } = useAuth();
@@ -62,10 +59,11 @@ function AlbumsPage({ onOpenAlbum }) {
             {albums.map((album) => (
               <AlbumCard
                 key={album.id}
+                id={album.id}
                 coverUrl={album.coverUrl}
                 title={album.title}
                 artist={album.artist}
-                onOpen={() => onOpenAlbum?.(album.id)}
+                onOpen={onOpenAlbum}
               />
             ))}
           </div>

@@ -1,6 +1,8 @@
-function PlaylistCard({ thumbnails = [], title, songCount, onClick }) {
+import { memo } from 'react';
+
+function PlaylistCard({ id, thumbnails = [], title, songCount, onOpen }) {
   return (
-    <div className="playlist-card" onClick={onClick}>
+    <div className="playlist-card" onClick={onOpen ? () => onOpen(id) : undefined}>
       <div className="playlist-card__collage">
         {thumbnails.slice(0, 4).map((thumb, i) => (
           <img
@@ -8,6 +10,8 @@ function PlaylistCard({ thumbnails = [], title, songCount, onClick }) {
             src={thumb}
             alt=""
             className="playlist-card__thumb"
+            loading="lazy"
+            decoding="async"
           />
         ))}
       </div>
@@ -19,4 +23,4 @@ function PlaylistCard({ thumbnails = [], title, songCount, onClick }) {
   );
 }
 
-export default PlaylistCard;
+export default memo(PlaylistCard);

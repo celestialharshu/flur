@@ -1,35 +1,48 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { X } from 'lucide-react';
-import { usePlayer } from '../../context/PlayerContext';
+import { usePlayer, usePlayerTime } from '../../context/PlayerContext';
 import { useAuth } from '../../context/AuthContext';
 import { lyricsApi } from '../../api/backend';
 
 // Remember results for the session so reopening / replaying is instant
 const lyricsCache = new Map();
 
-function trackKey(track) {
-  return `${track.id}`;
+// Index of the last line whose time has passed (lines are sorted by time)
+function lastReached(lines, t) {
+  let lo = 0;
+  let hi = lines.length - 1;
+  let found = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (lines[mid].time <= t) { found = mid; lo = mid + 1; } else hi = mid - 1;
+  }
+  return found;
 }
 
 function LyricsPanel({ onClose }) {
   const { token } = useAuth();
-  const { currentTrack, currentTime, seek } = usePlayer();
+  const { currentTrack, seek } = usePlayer();
+  const currentTime = usePlayerTime();
   const [lyrics, setLyrics] = useState(null);
   const [status, setStatus] = useState('loading'); // loading | ready | none | error
   const bodyRef = useRef(null);
-  const lineRefs = useRef([]);
+  const linesRef = useRef(null);
   const lastUserScroll = useRef(0);
+  const trackId = currentTrack?.id;
+  const trackRef = useRef(currentTrack);
+  trackRef.current = currentTrack;
 
   // Fetch lyrics whenever the track changes
   useEffect(() => {
-    if (!currentTrack || !token) return;
-    const key = trackKey(currentTrack);
+    const track = trackRef.current;
+    if (!track || !token) return undefined;
+    const key = `${track.id}`;
 
     if (lyricsCache.has(key)) {
       const cached = lyricsCache.get(key);
       setLyrics(cached);
       setStatus(cached ? 'ready' : 'none');
-      return;
+      return undefined;
     }
 
     let cancelled = false;
@@ -37,10 +50,10 @@ function LyricsPanel({ onClose }) {
     setLyrics(null);
 
     lyricsApi.get(token, {
-      title: currentTrack.title,
-      artist: currentTrack.artist,
-      album: currentTrack.album,
-      duration: currentTrack.durationSeconds,
+      title: track.title,
+      artist: track.artist,
+      album: track.album,
+      duration: track.durationSeconds,
     })
       .then(({ lyrics }) => {
         if (cancelled) return;
@@ -51,26 +64,22 @@ function LyricsPanel({ onClose }) {
       .catch(() => { if (!cancelled) setStatus('error'); });
 
     return () => { cancelled = true; };
-  }, [currentTrack?.id, token]);
+  }, [trackId, token]);
 
   const synced = lyrics?.synced || null;
 
   // Active line = last line whose timestamp has passed (small look-ahead feels better)
-  let activeIndex = -1;
-  if (synced) {
-    const t = currentTime + 0.3;
-    for (let i = 0; i < synced.length; i++) {
-      if (synced[i].time <= t) activeIndex = i;
-      else break;
-    }
-  }
+  const activeIndex = useMemo(
+    () => (synced ? lastReached(synced, currentTime + 0.3) : -1),
+    [synced, currentTime]
+  );
 
   // Keep the active line centred, unless the user is scrolling by hand
   useEffect(() => {
     if (activeIndex < 0) return;
     if (Date.now() - lastUserScroll.current < 3000) return;
     const body = bodyRef.current;
-    const line = lineRefs.current[activeIndex];
+    const line = linesRef.current?.children[activeIndex];
     if (!body || !line) return;
     body.scrollTo({
       top: line.offsetTop - body.clientHeight / 2 + line.clientHeight / 2,
@@ -79,6 +88,12 @@ function LyricsPanel({ onClose }) {
   }, [activeIndex]);
 
   const markUserScroll = () => { lastUserScroll.current = Date.now(); };
+
+  // one click handler for all lines instead of one closure per line
+  const handleLineClick = (e) => {
+    const el = e.target.closest('[data-i]');
+    if (el && synced) seek(synced[Number(el.dataset.i)].time);
+  };
 
   return (
     <div className="lyrics-panel" role="dialog" aria-label="Lyrics">
@@ -106,13 +121,12 @@ function LyricsPanel({ onClose }) {
         )}
 
         {status === 'ready' && synced && (
-          <div className="lyrics-panel__lines">
+          <div className="lyrics-panel__lines" ref={linesRef} onClick={handleLineClick}>
             {synced.map((line, i) => (
               <p
                 key={i}
-                ref={(el) => { lineRefs.current[i] = el; }}
+                data-i={i}
                 className={`lyrics-line ${i === activeIndex ? 'lyrics-line--active' : ''} ${i < activeIndex ? 'lyrics-line--past' : ''}`}
-                onClick={() => seek(line.time)}
               >
                 {line.text || '♪'}
               </p>

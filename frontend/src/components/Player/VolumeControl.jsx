@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Volume2, VolumeX, Volume1 } from 'lucide-react';
 import IconButton from '../common/IconButton';
 
@@ -33,4 +34,4 @@ function VolumeControl({ volume = 70, onVolumeChange, onToggleMute }) {
   );
 }
 
-export default VolumeControl;
+export default memo(VolumeControl);

@@ -1,25 +1,21 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Play, Shuffle } from 'lucide-react';
-import SongRow from './SongsRow';
-import CreatePlaylistModal from '../components/Playlists/CreatePlaylistModal';
+import SongList from '../components/Songs/SongList';
 import { useAuth } from '../context/AuthContext';
-import { usePlaylists } from '../context/PlaylistsContext';
-import { useFavorites } from '../context/FavoritesContext';
 import { usePlayer } from '../context/PlayerContext';
 import { albumsApi } from '../api/backend';
 import { mapSong } from '../utils/mapSong';
+import { secureUrl } from '../utils/media';
+import { shuffled } from '../utils/shuffle';
 
 function AlbumDetail({ albumId, onBack }) {
   const { token } = useAuth();
-  const { playlists, addSongToPlaylist, createPlaylist } = usePlaylists();
-  const { isFavorite, toggleFavorite } = useFavorites();
-  const { currentTrack, playTrack } = usePlayer();
+  const { playTrack } = usePlayer();
 
   const [album, setAlbum] = useState(null);
   const [songs, setSongs] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [pendingSongId, setPendingSongId] = useState(null);
 
   useEffect(() => {
     if (!token || !albumId) return;
@@ -34,6 +30,11 @@ function AlbumDetail({ albumId, onBack }) {
       .finally(() => setIsLoading(false));
   }, [token, albumId]);
 
+  const totalMinutes = useMemo(
+    () => Math.round(songs.reduce((sum, s) => sum + (s.durationSeconds || 0), 0) / 60),
+    [songs]
+  );
+
   if (isLoading) return null; // the global loader is showing
 
   if (error || !album) {
@@ -45,13 +46,10 @@ function AlbumDetail({ albumId, onBack }) {
     );
   }
 
-  const totalSeconds = songs.reduce((sum, s) => sum + (s.durationSeconds || 0), 0);
-  const totalMinutes = Math.round(totalSeconds / 60);
-
   const handleShuffle = () => {
     if (songs.length === 0) return;
-    const shuffled = [...songs].sort(() => Math.random() - 0.5);
-    playTrack(shuffled[0], shuffled);
+    const list = shuffled(songs);
+    playTrack(list[0], list);
   };
 
   return (
@@ -59,7 +57,7 @@ function AlbumDetail({ albumId, onBack }) {
       <button className="playlist-detail__back" onClick={onBack}>← Back to Albums</button>
 
       <div className="album-detail__hero">
-        <img src={album.cover_url} alt={album.title} className="album-detail__cover" />
+        <img src={secureUrl(album.cover_url)} alt={album.title} className="album-detail__cover" />
         <div className="album-detail__meta">
           <span className="text-muted">ALBUM</span>
           <h1 className="album-detail__title">{album.title}</h1>
@@ -90,35 +88,8 @@ function AlbumDetail({ albumId, onBack }) {
             <span className="songs-page__header-label songs-page__header-label--album">Album</span>
             <span className="songs-page__header-label songs-page__header-label--duration">Duration</span>
           </div>
-          <div className="songs-page__list">
-            {songs.map((song, i) => (
-              <SongRow
-                key={song.id}
-                id={song.id}
-                index={i + 1}
-                thumbnail={song.thumbnail}
-                title={song.title}
-                artist={song.artist}
-                album={song.album}
-                duration={song.duration}
-                isFavorite={isFavorite(song.id)}
-                onToggleFavorite={() => toggleFavorite(song.id)}
-                isActive={currentTrack?.id === song.id}
-                onPlay={() => playTrack(song, songs)}
-                playlists={playlists}
-                onAddToPlaylist={addSongToPlaylist}
-                onCreatePlaylist={(songId) => setPendingSongId(songId)}
-              />
-            ))}
-          </div>
+          <SongList songs={songs} />
         </>
-      )}
-
-      {pendingSongId !== null && (
-        <CreatePlaylistModal
-          onConfirm={(title) => { createPlaylist(title, pendingSongId); setPendingSongId(null); }}
-          onCancel={() => setPendingSongId(null)}
-        />
       )}
     </div>
   );

@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { setArtistAvatar } from '../models/artistModel.js';
+import { setArtistAvatars } from '../models/artistModel.js';
 
 // Deezer's public API: free, no key. Returns real artist photos.
 const DEEZER = 'https://api.deezer.com/search/artist';
@@ -37,14 +37,14 @@ export async function fetchArtistImage(name) {
 }
 
 // Look up real photos for artists that haven't been checked yet (raw_avatar_url
-// is NULL), save them, and patch the rows in place. Later requests are instant.
+// is NULL), save them (one query), and patch the rows in place. Later requests are instant.
 export async function attachRealPhotos(artists, max = 20) {
   const pending = artists.filter((a) => a.raw_avatar_url === null).slice(0, max);
-  await Promise.all(
-    pending.map(async (artist) => {
-      const url = await fetchArtistImage(artist.name);
-      await setArtistAvatar(artist.id, url);
-      if (url) artist.avatar_url = url;
-    })
-  );
+  if (pending.length === 0) return;
+
+  const urls = await Promise.all(pending.map((artist) => fetchArtistImage(artist.name)));
+  await setArtistAvatars(pending.map((artist, i) => ({ id: artist.id, url: urls[i] })));
+  pending.forEach((artist, i) => {
+    if (urls[i]) artist.avatar_url = urls[i];
+  });
 }

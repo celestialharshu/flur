@@ -1,9 +1,7 @@
 import {
   getUserPlaylists, createPlaylist, deletePlaylist,
-  addSongToPlaylist, removeSongFromPlaylist, getPlaylistOwner,
+  addSongToPlaylist, removeSongFromPlaylist, getPlaylistOwner, getPlaylistById,
 } from '../models/playlistModel.js';
-
-import { getPlaylistById } from '../models/playlistModel.js';
 
 export async function listPlaylists(req, res) {
   try {
@@ -18,14 +16,18 @@ export async function listPlaylists(req, res) {
 export async function createUserPlaylist(req, res) {
   try {
     const { title, songId } = req.body;
-    if (!title || !title.trim()) {
+    if (typeof title !== 'string' || !title.trim()) {
       return res.status(400).json({ error: 'Playlist title is required.' });
     }
+    const firstSong = songId ? parseInt(songId, 10) : null;
+    if (songId && !Number.isInteger(firstSong)) {
+      return res.status(400).json({ error: 'Invalid song id.' });
+    }
 
-    const playlist = await createPlaylist(req.user.userId, title.trim());
+    const playlist = await createPlaylist(req.user.userId, title.trim().slice(0, 255));
 
-    if (songId) {
-      await addSongToPlaylist(playlist.id, songId);
+    if (firstSong) {
+      await addSongToPlaylist(playlist.id, firstSong);
     }
 
     res.status(201).json({ playlist });
@@ -36,6 +38,10 @@ export async function createUserPlaylist(req, res) {
 }
 
 async function assertOwnership(req, res, playlistId) {
+  if (!Number.isInteger(playlistId)) {
+    res.status(400).json({ error: 'Invalid playlist id.' });
+    return false;
+  }
   const ownerId = await getPlaylistOwner(playlistId);
   if (ownerId === null) {
     res.status(404).json({ error: 'Playlist not found.' });
@@ -64,7 +70,8 @@ export async function removeUserPlaylist(req, res) {
 export async function addSong(req, res) {
   try {
     const playlistId = parseInt(req.params.playlistId, 10);
-    const { songId } = req.body;
+    const songId = parseInt(req.body.songId, 10);
+    if (!Number.isInteger(songId)) return res.status(400).json({ error: 'Invalid song id.' });
     if (!(await assertOwnership(req, res, playlistId))) return;
 
     await addSongToPlaylist(playlistId, songId);
@@ -91,6 +98,7 @@ export async function removeSong(req, res) {
 export async function getPlaylistDetail(req, res) {
   try {
     const playlistId = parseInt(req.params.playlistId, 10);
+    if (!Number.isInteger(playlistId)) return res.status(400).json({ error: 'Invalid playlist id.' });
     const playlist = await getPlaylistById(playlistId, req.user.userId);
     if (!playlist) {
       return res.status(404).json({ error: 'Playlist not found.' });

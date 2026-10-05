@@ -1,9 +1,5 @@
 import { useState, useEffect } from 'react';
-import SongRow from './SongsRow';
-import CreatePlaylistModal from '../components/Playlists/CreatePlaylistModal';
-import { usePlaylists } from '../context/PlaylistsContext';
-import { useFavorites } from '../context/FavoritesContext';
-import { usePlayer } from '../context/PlayerContext';
+import SongList from '../components/Songs/SongList';
 import { useAuth } from '../context/AuthContext';
 import { recommendationsApi, songsApi } from '../api/backend';
 import { mapSong } from '../utils/mapSong';
@@ -15,17 +11,12 @@ function Songs() {
   const [songs, setSongs] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [pendingSongId, setPendingSongId] = useState(null);
   const [browseOffset, setBrowseOffset] = useState(0);
   const [dbExhausted, setDbExhausted] = useState(false);
   const [discoverPage, setDiscoverPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [loadMoreError, setLoadMoreError] = useState(null);
-
-  const { playlists, addSongToPlaylist, createPlaylist } = usePlaylists();
-  const { isFavorite, toggleFavorite } = useFavorites();
-  const { currentTrack, playTrack } = usePlayer();
 
   useEffect(() => {
     if (!token) return;
@@ -82,11 +73,6 @@ function Songs() {
     }
   };
 
-  const handleCreatePlaylist = (title) => {
-    createPlaylist(title, pendingSongId);
-    setPendingSongId(null);
-  };
-
   return (
     <div className="songs-page">
       <div className="section__header">
@@ -105,27 +91,7 @@ function Songs() {
             <span className="songs-page__header-label songs-page__header-label--duration">Duration</span>
           </div>
 
-          <div className="songs-page__list">
-            {songs.map((song, i) => (
-              <SongRow
-                key={song.id}
-                id={song.id}
-                index={i + 1}
-                thumbnail={song.thumbnail}
-                title={song.title}
-                artist={song.artist}
-                album={song.album}
-                duration={song.duration}
-                isFavorite={isFavorite(song.id)}
-                onToggleFavorite={() => toggleFavorite(song.id)}
-                isActive={currentTrack?.id === song.id}
-                onPlay={() => playTrack(song, songs)}
-                playlists={playlists}
-                onAddToPlaylist={addSongToPlaylist}
-                onCreatePlaylist={(songId) => setPendingSongId(songId)}
-              />
-            ))}
-          </div>
+          <SongList songs={songs} />
 
           {loadMoreError && <p className="text-secondary">Couldn't load more songs: {loadMoreError}</p>}
 
@@ -137,13 +103,6 @@ function Songs() {
             </div>
           )}
         </>
-      )}
-
-      {pendingSongId !== null && (
-        <CreatePlaylistModal
-          onConfirm={handleCreatePlaylist}
-          onCancel={() => setPendingSongId(null)}
-        />
       )}
     </div>
   );

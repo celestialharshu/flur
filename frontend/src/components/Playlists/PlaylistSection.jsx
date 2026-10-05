@@ -23,9 +23,10 @@ function PlaylistSection({ title = 'Playlists', playlists = [] }) {
         {playlists.map((playlist) => (
           <PlaylistCard
             key={playlist.id}
+            id={playlist.id}
             thumbnails={playlist.thumbnails}
             title={playlist.title}
-            songCount={playlist.songCount}
+            songCount={playlist.songCount ?? playlist.songIds?.length ?? 0}
           />
         ))}
       </div>

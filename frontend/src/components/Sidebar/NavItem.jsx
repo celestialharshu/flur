@@ -1,3 +1,5 @@
+import { memo } from 'react';
+
 function NavItem({ icon, label, viewKey, activeView, onNavigate }) {
   const isActive = activeView === viewKey;
 
@@ -12,4 +14,4 @@ function NavItem({ icon, label, viewKey, activeView, onNavigate }) {
   );
 }
 
-export default NavItem;
+export default memo(NavItem);

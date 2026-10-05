@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Play, Shuffle } from 'lucide-react';
 import AlbumSection from '../components/Albums/AlbumSection';
 import PlaylistSection from '../components/Playlists/PlaylistSection';
@@ -7,7 +7,8 @@ import { usePlaylists } from '../context/PlaylistsContext';
 import { usePlayer } from '../context/PlayerContext';
 import { useAuth } from '../context/AuthContext';
 import { recommendationsApi, historyApi } from '../api/backend';
-import { mapSong } from '../utils/mapSong';
+import { mapSong, mapAlbum } from '../utils/mapSong';
+import { shuffled } from '../utils/shuffle';
 
 const RECENT_LIMIT = 20;
 const SUGGESTION_COUNT = 12;
@@ -34,12 +35,7 @@ function Explorer({ onOpenAlbum }) {
     if (!token) return;
     recommendationsApi.get(token)
       .then(({ albums, songs }) => {
-        setAlbums(albums.map((a) => ({
-          id: a.id,
-          title: a.title,
-          artist: a.artist_name,
-          coverUrl: a.cover_url,
-        })));
+        setAlbums(albums.map(mapAlbum));
         setSongs(songs.map(mapSong));
       })
       .catch((err) => setError(err.message));
@@ -61,21 +57,30 @@ function Explorer({ onOpenAlbum }) {
     setRecent((prev) =>
       [currentTrack, ...prev.filter((s) => s.id !== currentTrack.id)].slice(0, RECENT_LIMIT)
     );
-  }, [currentTrack?.id]);
+  }, [currentTrack?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const suggestions = useMemo(() => songs.slice(0, SUGGESTION_COUNT), [songs]);
 
   // Album click -> play the recommended songs that belong to that album
-  const getAlbumPlayHandler = (album) => {
-    const albumSongs = songs.filter((s) => s.album === album.title);
-    if (albumSongs.length === 0) return undefined;
-    return () => playTrack(albumSongs[0], albumSongs);
-  };
+  const songsByAlbum = useMemo(() => {
+    const m = new Map();
+    for (const s of songs) {
+      const l = m.get(s.album);
+      if (l) l.push(s);
+      else m.set(s.album, [s]);
+    }
+    return m;
+  }, [songs]);
+
+  const getAlbumPlayHandler = useCallback((album) => {
+    const list = songsByAlbum.get(album.title);
+    return list ? () => playTrack(list[0], list) : undefined;
+  }, [songsByAlbum, playTrack]);
 
   const handleShuffleAll = () => {
     if (songs.length === 0) return;
-    const shuffled = [...songs].sort(() => Math.random() - 0.5);
-    playTrack(shuffled[0], shuffled);
+    const list = shuffled(songs);
+    playTrack(list[0], list);
   };
 
   return (

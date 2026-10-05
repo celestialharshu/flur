@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import {
   LayoutGrid,
   Radio,
@@ -13,9 +14,6 @@ import Brand from './Brand';
 import UserProfile from './UserProfile';
 import SidebarSection from './SidebarSection';
 import NavItem from './NavItem';
-import { LogOut } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
-
 
 const MAIN_NAV_ITEMS = [
   { viewKey: 'explorer', label: 'Explorer', icon: <LayoutGrid size={18} /> },
@@ -32,10 +30,7 @@ const SETTINGS_NAV_ITEMS = [
   { viewKey: 'equalizer', label: 'Equalizer', icon: <SlidersHorizontal size={18} /> },
 ];
 
-
-
-function Sidebar({ activeView, onNavigate, user, nowPlaying }) {
-  const { logout } = useAuth();
+function Sidebar({ activeView, onNavigate, user }) {
   return (
     <div className="sidebar">
       <Brand />
@@ -72,4 +67,4 @@ function Sidebar({ activeView, onNavigate, user, nowPlaying }) {
   );
 }
 
-export default Sidebar;
+export default memo(Sidebar);

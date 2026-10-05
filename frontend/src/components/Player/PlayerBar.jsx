@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { Mic2 } from 'lucide-react';
 import LyricsPanel from './LyricsPanel';
 import IconButton from '../common/IconButton';
@@ -10,15 +10,19 @@ import PlayerProgressStrip from './PlayerProgressStrip';
 import { usePlayer } from '../../context/PlayerContext';
 import { useFavorites } from '../../context/FavoritesContext';
 
+// This component does not re-render as the song plays: only ProgressBar and
+// PlayerProgressStrip follow the clock.
 function PlayerBar() {
   // ALL hooks called first, unconditionally, every render — no exceptions.
   const {
-    currentTrack, isPlaying, currentTime, volume,
+    currentTrack, isPlaying, volume,
     isShuffle, isRepeat,
-    togglePlay, next, prev, seek, setVolume, toggleShuffle, toggleRepeat,
+    togglePlay, next, prev, setVolume, toggleShuffle, toggleRepeat,
   } = usePlayer();
   const { isFavorite, toggleFavorite } = useFavorites();
   const [showLyrics, setShowLyrics] = useState(false);
+  const closeLyrics = useCallback(() => setShowLyrics(false), []);
+  const toggleLyrics = useCallback(() => setShowLyrics((v) => !v), []);
 
   // Early return comes AFTER all hooks, never before or between them.
   if (!currentTrack) {
@@ -48,16 +52,13 @@ function PlayerBar() {
           onToggleShuffle={toggleShuffle}
           onToggleRepeat={toggleRepeat}
         />
-        <ProgressBar
-          currentTime={currentTime}
-          duration={currentTrack.durationSeconds}
-        />
+        <ProgressBar duration={currentTrack.durationSeconds} />
       </div>
 
       <div className="player-bar__right">
         <IconButton
           icon={<Mic2 size={18} />}
-          onClick={() => setShowLyrics((v) => !v)}
+          onClick={toggleLyrics}
           active={showLyrics}
           size="sm"
           ariaLabel="Toggle lyrics"
@@ -65,7 +66,7 @@ function PlayerBar() {
         <VolumeControl volume={volume} onVolumeChange={setVolume} />
       </div>
 
-      {showLyrics && <LyricsPanel onClose={() => setShowLyrics(false)} />}
+      {showLyrics && <LyricsPanel onClose={closeLyrics} />}
     </div>
   );
 }
