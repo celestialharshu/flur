@@ -90,7 +90,7 @@ function Card({ title, subtitle, onReset, right, children }) {
 }
 
 function Equalizer() {
-  const { state, corsOk, canShift, active, engine } = useAudioEffects();
+  const { state, corsOk, canShift, active, issue, engine } = useAudioEffects();
   const { eq, tone, pitch, reverb, spatial, speed } = state;
 
   // Everything except speed and varispeed pitch needs Web Audio processing.
@@ -122,6 +122,7 @@ function Equalizer() {
           spatial effects can't be applied. Playback speed and pitch (which changes tempo too) still work.
         </div>
       )}
+      {issue && <div className="fx-notice fx-notice--warn">{issue}</div>}
       {waiting && (
         <div className="fx-notice">Play a song and the effects will apply to it. Your settings are already saved.</div>
       )}

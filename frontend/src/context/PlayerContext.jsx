@@ -150,10 +150,16 @@ export function PlayerProvider({ children }) {
         return;
       }
       console.warn('Audio could not be loaded:', a.error?.code, a.error?.message, url);
+      audioEngine.setIssue(`Song failed to load (error ${a.error?.code ?? '?'}): ${a.error?.message || 'no details'} - ${url}`);
       setIsPlaying(false);
     };
+    const ok = () => audioEngine.setIssue(''); // it plays, so any earlier warning is out of date
     a.addEventListener('error', onError);
-    return () => a.removeEventListener('error', onError);
+    a.addEventListener('playing', ok);
+    return () => {
+      a.removeEventListener('error', onError);
+      a.removeEventListener('playing', ok);
+    };
   }, [a, play, jumpTo]);
 
   // Log every newly started track to the user's listen history

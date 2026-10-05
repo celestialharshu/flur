@@ -137,10 +137,24 @@ class AudioEngine {
     this.irTimer = null;
     this.saveTimer = null;
     this.probing = null;
+    this.issue = ''; // plain-text reason when audio is blocked or fails (shown on the Equalizer page)
     this.listeners = new Set();
     this.snapshot = this._makeSnapshot();
     // write pending settings before the window closes
     if (typeof window !== 'undefined') window.addEventListener('pagehide', () => this._flush());
+    // the app's own security policy (CSP) can silently block songs in the packaged exe
+    if (typeof document !== 'undefined') {
+      document.addEventListener('securitypolicyviolation', (e) => {
+        const d = e.effectiveDirective || e.violatedDirective || '';
+        if (/^(media|connect|default)-src/.test(d)) this.setIssue(`Blocked by the app security policy (${d}): ${e.blockedURI}`);
+      });
+    }
+  }
+
+  setIssue(m) {
+    if (this.issue === m) return;
+    this.issue = m;
+    this._emit();
   }
 
   // ---------- store API (used by the React hook) ----------
@@ -156,6 +170,7 @@ class AudioEngine {
       state: this.state,
       corsOk: this.corsOk,
       graphActive: this.graphActive,
+      issue: this.issue,
       canShift: this._canShiftPotential(),
       active: this._needsGraph(),
     };
